@@ -1,11 +1,11 @@
-import { ComingSoon } from "@/components/coming-soon";
+import { PageHeader } from "@/components/page-header";
+import { ReportsIndex } from "./reports-index";
 
 export default function ReportsPage() {
   return (
-    <ComingSoon
-      title="דוחות"
-      phase="Phase 5 — Dashboard, דוחות, ממשק עובד"
-      description="דוחות יומי/שבועי/לפי אזור/כלי/עובד ו-Export ל-Excel/הדפסה ייבנו לאחר שיהיו תוכניות עבודה בפועל להפיק מהן דוחות."
-    />
+    <div>
+      <PageHeader title="דוחות" subtitle="הפקת דוחות והפקה ל-Excel/הדפסה/PDF" />
+      <ReportsIndex />
+    </div>
   );
 }

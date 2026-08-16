@@ -46,16 +46,24 @@ export type StreetGeoJsonRow = {
   type: string;
   priority: string;
   zoneId: string | null;
+  zoneName: string | null;
+  lengthM: number | null;
+  cleaningFrequency: unknown;
+  estimatedCleanMinutes: number | null;
+  notes: string | null;
   geojson: string | null;
 };
 
 /** All active streets as a FeatureCollection-ready row set for the map. */
 export async function getStreetsAsGeoJson() {
   const rows = await prisma.$queryRaw<StreetGeoJsonRow[]>`
-    SELECT id, name, type::text as type, priority::text as priority,
-           zone_id as "zoneId", ST_AsGeoJSON(geometry) as geojson
-    FROM streets
-    WHERE active = true AND geometry IS NOT NULL
+    SELECT s.id, s.name, s.type::text as type, s.priority::text as priority,
+           s.zone_id as "zoneId", z.name as "zoneName", s.length_m as "lengthM",
+           s.cleaning_frequency as "cleaningFrequency", s.estimated_clean_minutes as "estimatedCleanMinutes",
+           s.notes, ST_AsGeoJSON(s.geometry) as geojson
+    FROM streets s
+    LEFT JOIN zones z ON z.id = s.zone_id
+    WHERE s.active = true AND s.geometry IS NOT NULL
   `;
   return {
     type: "FeatureCollection" as const,
@@ -64,7 +72,18 @@ export async function getStreetsAsGeoJson() {
       .map((r) => ({
         type: "Feature" as const,
         geometry: JSON.parse(r.geojson as string),
-        properties: { id: r.id, name: r.name, type: r.type, priority: r.priority, zoneId: r.zoneId },
+        properties: {
+          id: r.id,
+          name: r.name,
+          type: r.type,
+          priority: r.priority,
+          zoneId: r.zoneId,
+          zoneName: r.zoneName,
+          lengthM: r.lengthM,
+          cleaningFrequency: r.cleaningFrequency,
+          estimatedCleanMinutes: r.estimatedCleanMinutes,
+          notes: r.notes,
+        },
       })),
   };
 }
