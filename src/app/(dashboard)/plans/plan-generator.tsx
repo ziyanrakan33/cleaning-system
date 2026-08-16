@@ -98,8 +98,15 @@ export function PlanGenerator({
       {result && (
         <div className="space-y-6">
           <div className="rounded-xl border border-panel-border bg-panel p-4">
-            <div className="mb-2 text-sm font-semibold">
-              תוכנית ל-{result.date} · גרסה {result.versionNumber}
+            <div className="mb-2 flex items-center justify-between">
+              <span className="text-sm font-semibold">
+                תוכנית ל-{result.date} · גרסה {result.versionNumber}
+              </span>
+              {result.resources.length > 0 && (
+                <a href={`/plans/${result.workPlanId}`} className="text-sm text-accent hover:underline">
+                  צפייה במפה ובמסלולים ←
+                </a>
+              )}
             </div>
             <div className="flex gap-6 text-sm text-muted">
               <span>

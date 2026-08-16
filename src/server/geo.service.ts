@@ -95,6 +95,23 @@ export async function getZonesAsGeoJson() {
   };
 }
 
+/** Raw [lon,lat][] coordinate arrays for a set of streets, keyed by street id — used to draw per-resource routes. */
+export async function getStreetGeometryForTasks(streetIds: string[]): Promise<Map<string, LonLat[]>> {
+  if (streetIds.length === 0) return new Map();
+  const rows = await prisma.$queryRaw<{ id: string; geojson: string | null }[]>`
+    SELECT id, ST_AsGeoJSON(geometry) as geojson
+    FROM streets
+    WHERE id = ANY(${streetIds})
+  `;
+  const map = new Map<string, LonLat[]>();
+  for (const r of rows) {
+    if (!r.geojson) continue;
+    const geom = JSON.parse(r.geojson) as { type: string; coordinates: LonLat[] };
+    if (geom.type === "LineString") map.set(r.id, geom.coordinates);
+  }
+  return map;
+}
+
 /** Suggests a zone for a street by point-in-polygon test against its midpoint. Manager confirms/overrides. */
 export async function suggestZoneForStreet(streetId: string): Promise<string | null> {
   const rows = await prisma.$queryRaw<{ zoneId: string | null }[]>`
