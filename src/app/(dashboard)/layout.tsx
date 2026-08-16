@@ -9,6 +9,7 @@ const NAV_ITEMS = [
   { href: "/resources", label: "משאבים" },
   { href: "/plans", label: "תוכניות עבודה" },
   { href: "/plans/weekly", label: "לוח שבועי" },
+  { href: "/plans/history", label: "היסטוריית גרסאות" },
   { href: "/reports", label: "דוחות" },
 ];
 

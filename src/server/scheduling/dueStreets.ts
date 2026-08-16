@@ -1,7 +1,7 @@
 import { prisma } from "@/lib/prisma";
+import { dayCodeOf } from "@/server/dateUtils";
 
 const PRIORITY_ORDER: Record<string, number> = { CRITICAL: 0, HIGH: 1, NORMAL: 2, LOW: 3 };
-const DAY_CODES = ["SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"] as const;
 
 type CleaningFrequency =
   | { type: "DAILY" }
@@ -28,7 +28,7 @@ export async function getDueStreets(date: Date) {
   });
   const lastCleanedMap = new Map(lastCleanedRows.map((r) => [r.streetId, r._max.date]));
 
-  const dayCode = DAY_CODES[date.getDay()];
+  const dayCode = dayCodeOf(date);
 
   const due = streets.filter((s) => {
     const freq = s.cleaningFrequency as CleaningFrequency;

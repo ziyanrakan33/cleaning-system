@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { generateWorkPlan } from "@/server/scheduling/engine";
+import { parseDateOnly } from "@/server/dateUtils";
 
 const bodySchema = z.object({ date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/) });
 
@@ -16,8 +17,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
   }
 
-  const [y, m, d] = parsed.data.date.split("-").map(Number);
-  const date = new Date(y, m - 1, d);
+  const date = parseDateOnly(parsed.data.date);
 
   try {
     const result = await generateWorkPlan(date, session.user.id);

@@ -2,7 +2,12 @@ import { prisma } from "@/lib/prisma";
 import { PageHeader } from "@/components/page-header";
 import { PlanGenerator } from "./plan-generator";
 
-export default async function PlansPage() {
+export default async function PlansPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ date?: string }>;
+}) {
+  const params = await searchParams;
   const [zoneCount, resourceCount, streetCount] = await Promise.all([
     prisma.zone.count({ where: { active: true } }),
     prisma.resource.count({ where: { active: true, status: "ACTIVE" } }),
@@ -15,7 +20,12 @@ export default async function PlansPage() {
         title="תוכניות עבודה"
         subtitle="מנוע התזמון: הקצאת רחובות למשאבים לפי עדיפות ותדירות, וסידור מסלול לפי הרשת הכבישים האמיתית"
       />
-      <PlanGenerator zoneCount={zoneCount} resourceCount={resourceCount} streetCount={streetCount} />
+      <PlanGenerator
+        zoneCount={zoneCount}
+        resourceCount={resourceCount}
+        streetCount={streetCount}
+        initialDate={params.date}
+      />
     </div>
   );
 }

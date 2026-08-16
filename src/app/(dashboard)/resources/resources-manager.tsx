@@ -1,7 +1,8 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { Fragment, useState } from "react";
+import { AvailabilityStrip } from "@/components/availability-strip";
 
 type ResourceType = { id: string; name: string; code: string };
 type ResourceRow = {
@@ -34,6 +35,7 @@ export function ResourcesManager({
 }) {
   const router = useRouter();
   const [showTypeForm, setShowTypeForm] = useState(false);
+  const [expandedId, setExpandedId] = useState<string | null>(null);
   const [typeName, setTypeName] = useState("");
   const [typeCode, setTypeCode] = useState("");
 
@@ -222,36 +224,54 @@ export function ResourcesManager({
             <th className="px-4 py-2 text-start font-medium">עובד</th>
             <th className="px-4 py-2 text-start font-medium">שעות עבודה</th>
             <th className="px-4 py-2 text-start font-medium">סטטוס</th>
+            <th className="px-4 py-2 text-start font-medium">זמינות</th>
           </tr>
         </thead>
         <tbody>
           {resources.map((r) => (
-            <tr key={r.id} className="border-b border-panel-border/60">
-              <td className="px-4 py-2 font-mono text-xs">{r.identifier}</td>
-              <td className="px-4 py-2">{r.name ?? "—"}</td>
-              <td className="px-4 py-2 text-muted">{r.typeName}</td>
-              <td className="px-4 py-2 text-muted">{r.assignedEmployeeName ?? "—"}</td>
-              <td className="px-4 py-2 text-muted" dir="ltr">
-                {r.workHoursStart && r.workHoursEnd ? `${r.workHoursStart}–${r.workHoursEnd}` : "—"}
-              </td>
-              <td className="px-4 py-2">
-                <select
-                  value={r.status}
-                  onChange={(e) => updateStatus(r.id, e.target.value)}
-                  className={`rounded border border-panel-border bg-transparent px-2 py-1 text-xs outline-none ${
-                    STATUS_OPTIONS.find((s) => s.value === r.status)?.className ?? ""
-                  }`}
-                >
-                  {STATUS_OPTIONS.map((s) => (
-                    <option key={s.value} value={s.value}>{s.label}</option>
-                  ))}
-                </select>
-              </td>
-            </tr>
+            <Fragment key={r.id}>
+              <tr className="border-b border-panel-border/60">
+                <td className="px-4 py-2 font-mono text-xs">{r.identifier}</td>
+                <td className="px-4 py-2">{r.name ?? "—"}</td>
+                <td className="px-4 py-2 text-muted">{r.typeName}</td>
+                <td className="px-4 py-2 text-muted">{r.assignedEmployeeName ?? "—"}</td>
+                <td className="px-4 py-2 text-muted" dir="ltr">
+                  {r.workHoursStart && r.workHoursEnd ? `${r.workHoursStart}–${r.workHoursEnd}` : "—"}
+                </td>
+                <td className="px-4 py-2">
+                  <select
+                    value={r.status}
+                    onChange={(e) => updateStatus(r.id, e.target.value)}
+                    className={`rounded border border-panel-border bg-transparent px-2 py-1 text-xs outline-none ${
+                      STATUS_OPTIONS.find((s) => s.value === r.status)?.className ?? ""
+                    }`}
+                  >
+                    {STATUS_OPTIONS.map((s) => (
+                      <option key={s.value} value={s.value}>{s.label}</option>
+                    ))}
+                  </select>
+                </td>
+                <td className="px-4 py-2">
+                  <button
+                    onClick={() => setExpandedId(expandedId === r.id ? null : r.id)}
+                    className="text-xs text-accent hover:underline"
+                  >
+                    {expandedId === r.id ? "סגור" : "לוח זמינות"}
+                  </button>
+                </td>
+              </tr>
+              {expandedId === r.id && (
+                <tr className="border-b border-panel-border/60 bg-background/50">
+                  <td colSpan={7}>
+                    <AvailabilityStrip resourceId={r.id} />
+                  </td>
+                </tr>
+              )}
+            </Fragment>
           ))}
           {resources.length === 0 && (
             <tr>
-              <td colSpan={6} className="px-4 py-8 text-center text-muted">
+              <td colSpan={7} className="px-4 py-8 text-center text-muted">
                 אין עדיין משאבים. הוסיפו סוג משאב ומשאב באמצעות הטפסים למעלה.
               </td>
             </tr>

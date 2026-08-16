@@ -1,7 +1,9 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { RouteMap, type RouteStop } from "@/components/map/route-map";
+import { PlanEditorBoard } from "./plan-editor-board";
 
 type Task = {
   id: string;
@@ -34,17 +36,56 @@ function fmtTime(iso: string) {
 }
 
 export function PlanDetail({ workPlanId }: { workPlanId: string }) {
+  const router = useRouter();
   const [resources, setResources] = useState<ResourcePlan[] | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [recomputing, setRecomputing] = useState(false);
+  const [recomputeMsg, setRecomputeMsg] = useState<string | null>(null);
+  const [status, setStatus] = useState<string | null>(null);
+  const [view, setView] = useState<"map" | "edit">("map");
 
-  useEffect(() => {
+  const load = useCallback(() => {
     fetch(`/api/plans/${workPlanId}`)
       .then((r) => r.json())
       .then((data) => {
         setResources(data.resources);
-        setSelectedId(data.resources[0]?.resourceId ?? null);
+        setSelectedId((prev) => prev ?? data.resources[0]?.resourceId ?? null);
+        setStatus(data.status);
       });
   }, [workPlanId]);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  async function recompute() {
+    setRecomputing(true);
+    setRecomputeMsg(null);
+    try {
+      const res = await fetch(`/api/plans/${workPlanId}/recompute`, { method: "POST" });
+      const body = await res.json();
+      if (!res.ok) throw new Error(body.message ?? "החישוב מחדש נכשל");
+      if (body.unchanged) {
+        setRecomputeMsg("כל המשאבים בתוכנית עדיין זמינים — אין צורך בחישוב מחדש.");
+      } else {
+        router.push(`/plans/${body.newWorkPlanId}`);
+        router.refresh();
+      }
+    } catch (e) {
+      setRecomputeMsg((e as Error).message);
+    } finally {
+      setRecomputing(false);
+    }
+  }
+
+  async function confirmPlan() {
+    const res = await fetch(`/api/plans/${workPlanId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ status: "CONFIRMED" }),
+    });
+    if (res.ok) setStatus("CONFIRMED");
+  }
 
   if (!resources) {
     return <div className="p-6 text-sm text-muted">טוען תוכנית...</div>;
@@ -69,58 +110,99 @@ export function PlanDetail({ workPlanId }: { workPlanId: string }) {
   const totalTravelMin = selected.tasks.reduce((sum, t) => sum + (t.travelTimeMin ?? 0), 0);
 
   return (
-    <div className="flex flex-1 overflow-hidden">
-      <div className="flex w-[420px] shrink-0 flex-col border-l border-panel-border">
-        <div className="border-b border-panel-border p-2">
-          {resources.map((r, i) => (
-            <button
-              key={r.resourceId}
-              onClick={() => setSelectedId(r.resourceId)}
-              className={`flex w-full items-center gap-2 rounded-md px-3 py-2 text-start text-sm ${
-                r.resourceId === selectedId ? "bg-accent/10" : "hover:bg-accent/5"
-              }`}
-            >
-              <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: COLORS[i % COLORS.length] }} />
-              <span className="font-medium">{r.typeName} {r.identifier}</span>
-              {r.name && <span className="text-muted">· {r.name}</span>}
-              <span className="ms-auto text-xs text-muted">{r.tasks.length} רחובות</span>
+    <div className="flex flex-1 flex-col overflow-hidden">
+      <div className="flex items-center gap-2 border-b border-panel-border px-4 py-2">
+        <button
+          onClick={() => setView("map")}
+          className={`rounded-md px-3 py-1 text-sm ${view === "map" ? "bg-accent/10 text-accent" : "text-muted"}`}
+        >
+          מפה ומסלולים
+        </button>
+        <button
+          onClick={() => setView("edit")}
+          className={`rounded-md px-3 py-1 text-sm ${view === "edit" ? "bg-accent/10 text-accent" : "text-muted"}`}
+        >
+          עריכה ידנית (גרירה)
+        </button>
+        <div className="ms-auto flex items-center gap-3">
+          {status === "CONFIRMED" ? (
+            <span className="rounded-md bg-success/10 px-3 py-1 text-xs font-semibold text-success">✓ תוכנית מאושרת</span>
+          ) : (
+            <button onClick={confirmPlan} className="rounded-md border border-success/40 bg-success/10 px-3 py-1 text-xs font-semibold text-success">
+              אשר תוכנית
             </button>
-          ))}
+          )}
+          <button
+            onClick={recompute}
+            disabled={recomputing}
+            className="rounded-md border border-warning/40 bg-warning/10 px-3 py-1 text-xs font-semibold text-warning disabled:opacity-50"
+          >
+            {recomputing ? "מחשב מחדש..." : "חשב תוכנית מחדש"}
+          </button>
+          <a href="/plans/history" className="text-xs text-accent hover:underline">
+            היסטוריה
+          </a>
         </div>
+      </div>
+      {recomputeMsg && <div className="border-b border-panel-border px-4 py-2 text-xs text-muted">{recomputeMsg}</div>}
 
-        <div className="border-b border-panel-border p-3 text-sm">
-          <div className="flex gap-4 text-muted">
-            <span>{selected.tasks.length} רחובות</span>
-            <span>{totalKm.toFixed(1)} ק״מ</span>
-            <span>ניקיון {Math.round(totalCleanMin)} דק׳</span>
-            <span>נסיעה {Math.round(totalTravelMin)} דק׳</span>
-          </div>
-        </div>
+      {view === "edit" ? (
+        <PlanEditorBoard resources={resources} onChanged={load} />
+      ) : (
+        <div className="flex flex-1 overflow-hidden">
+          <div className="flex w-[420px] shrink-0 flex-col border-l border-panel-border">
+            <div className="border-b border-panel-border p-2">
+              {resources.map((r, i) => (
+                <button
+                  key={r.resourceId}
+                  onClick={() => setSelectedId(r.resourceId)}
+                  className={`flex w-full items-center gap-2 rounded-md px-3 py-2 text-start text-sm ${
+                    r.resourceId === selectedId ? "bg-accent/10" : "hover:bg-accent/5"
+                  }`}
+                >
+                  <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: COLORS[i % COLORS.length] }} />
+                  <span className="font-medium">{r.typeName} {r.identifier}</span>
+                  {r.name && <span className="text-muted">· {r.name}</span>}
+                  <span className="ms-auto text-xs text-muted">{r.tasks.length} רחובות</span>
+                </button>
+              ))}
+            </div>
 
-        <div className="flex-1 overflow-y-auto">
-          {selected.tasks.map((t, i) => (
-            <div key={t.id} className="flex items-start gap-3 border-b border-panel-border/60 px-3 py-2 text-sm">
-              <span
-                className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[11px] font-bold text-white"
-                style={{ background: color }}
-              >
-                {i + 1}
-              </span>
-              <div className="flex-1">
-                <div className="font-medium">{t.streetName}</div>
-                <div className="text-xs text-muted" dir="ltr">
-                  {fmtTime(t.plannedStart)}–{fmtTime(t.plannedEnd)}
-                  {t.distanceM ? ` · ${Math.round(t.distanceM)}מ' נסיעה` : ""}
-                </div>
+            <div className="border-b border-panel-border p-3 text-sm">
+              <div className="flex gap-4 text-muted">
+                <span>{selected.tasks.length} רחובות</span>
+                <span>{totalKm.toFixed(1)} ק״מ</span>
+                <span>ניקיון {Math.round(totalCleanMin)} דק׳</span>
+                <span>נסיעה {Math.round(totalTravelMin)} דק׳</span>
               </div>
             </div>
-          ))}
-        </div>
-      </div>
 
-      <div className="relative flex-1">
-        <RouteMap stops={stops} color={color} />
-      </div>
+            <div className="flex-1 overflow-y-auto">
+              {selected.tasks.map((t, i) => (
+                <div key={t.id} className="flex items-start gap-3 border-b border-panel-border/60 px-3 py-2 text-sm">
+                  <span
+                    className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[11px] font-bold text-white"
+                    style={{ background: color }}
+                  >
+                    {i + 1}
+                  </span>
+                  <div className="flex-1">
+                    <div className="font-medium">{t.streetName}</div>
+                    <div className="text-xs text-muted" dir="ltr">
+                      {fmtTime(t.plannedStart)}–{fmtTime(t.plannedEnd)}
+                      {t.distanceM ? ` · ${Math.round(t.distanceM)}מ' נסיעה` : ""}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="relative flex-1">
+            <RouteMap stops={stops} color={color} />
+          </div>
+        </div>
+      )}
     </div>
   );
 }

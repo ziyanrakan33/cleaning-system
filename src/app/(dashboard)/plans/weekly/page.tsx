@@ -1,11 +1,11 @@
-import { ComingSoon } from "@/components/coming-soon";
+import { PageHeader } from "@/components/page-header";
+import { WeeklyBoard } from "./weekly-board";
 
 export default function WeeklyPlanPage() {
   return (
-    <ComingSoon
-      title="לוח שבועי"
-      phase="Phase 3 — מפה ותצוגות תוכנית"
-      description="לוח 7 הימים יוצג לאחר שמנוע התזמון (Phase 2) ייצור תוכניות עבודה בפועל."
-    />
+    <div>
+      <PageHeader title="לוח שבועי" subtitle="תמונת מצב לשבוע: כלים, משימות וסטטוס תוכנית לכל יום" />
+      <WeeklyBoard />
+    </div>
   );
 }

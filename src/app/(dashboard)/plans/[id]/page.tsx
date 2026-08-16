@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { PageHeader } from "@/components/page-header";
 import { PlanDetail } from "./plan-detail";
+import { formatDateOnly } from "@/server/dateUtils";
 
 export default async function PlanDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -11,7 +12,7 @@ export default async function PlanDetailPage({ params }: { params: Promise<{ id:
   return (
     <div className="flex h-screen flex-col">
       <PageHeader
-        title={`תוכנית עבודה — ${plan.date.toISOString().slice(0, 10)}`}
+        title={`תוכנית עבודה — ${formatDateOnly(plan.date)}`}
         subtitle={`גרסה ${plan.versionNumber}`}
       />
       <PlanDetail workPlanId={plan.id} />

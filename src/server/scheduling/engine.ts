@@ -3,6 +3,7 @@ import { getDueStreets, type DueStreet } from "./dueStreets";
 import { balanceWorkload, type EligibleResource } from "./workloadBalancing";
 import { sequenceRoute } from "./routeSequencing";
 import { defaultCleanMinutes, travelMinutes } from "./estimate";
+import { formatDateOnly, localDateAtTime } from "@/server/dateUtils";
 
 export type GeneratePlanResult = {
   workPlanId: string;
@@ -99,10 +100,8 @@ export async function generateWorkPlan(date: Date, createdById: string): Promise
 
       const [sh, sm] = plannedStartStr.split(":").map(Number);
       const [eh, em] = plannedEndStr.split(":").map(Number);
-      const plannedStart = new Date(date);
-      plannedStart.setHours(sh, sm, 0, 0);
-      const plannedEnd = new Date(date);
-      plannedEnd.setHours(eh, em, 0, 0);
+      const plannedStart = localDateAtTime(date, sh, sm);
+      const plannedEnd = localDateAtTime(date, eh, em);
 
       await prisma.workPlanTask.create({
         data: {
@@ -145,7 +144,7 @@ export async function generateWorkPlan(date: Date, createdById: string): Promise
 
   return {
     workPlanId: workPlan.id,
-    date: date.toISOString().slice(0, 10),
+    date: formatDateOnly(date),
     versionNumber: workPlan.versionNumber,
     resources: resourceSummaries,
     unassignedStreets: unassigned.map((s) => ({ id: s.id, name: s.name, priority: s.priority })),

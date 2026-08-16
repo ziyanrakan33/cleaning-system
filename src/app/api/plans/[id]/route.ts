@@ -1,6 +1,9 @@
 import { NextResponse } from "next/server";
+import { z } from "zod";
 import { prisma } from "@/lib/prisma";
+import { auth } from "@/lib/auth";
 import { getStreetGeometryForTasks } from "@/server/geo.service";
+import { formatDateOnly } from "@/server/dateUtils";
 
 export async function GET(_req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -54,9 +57,37 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
 
   return NextResponse.json({
     id: workPlan.id,
-    date: workPlan.date.toISOString().slice(0, 10),
+    date: formatDateOnly(workPlan.date),
     versionNumber: workPlan.versionNumber,
     status: workPlan.status,
     resources,
   });
+}
+
+const patchSchema = z.object({ status: z.enum(["DRAFT", "CONFIRMED", "ARCHIVED"]) });
+
+export async function PATCH(req: Request, { params }: { params: Promise<{ id: string }> }) {
+  const session = await auth();
+  if (!session?.user || (session.user.role !== "ADMIN" && session.user.role !== "MANAGER")) {
+    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  }
+  const { id } = await params;
+  const parsed = patchSchema.safeParse(await req.json());
+  if (!parsed.success) return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
+
+  const before = await prisma.workPlan.findUnique({ where: { id }, select: { status: true } });
+  const plan = await prisma.workPlan.update({ where: { id }, data: { status: parsed.data.status } });
+
+  await prisma.workPlanChange.create({
+    data: {
+      workPlanId: id,
+      changedById: session.user.id,
+      changeType: "STATUS_CHANGE",
+      description: `סטטוס שונה מ-${before?.status} ל-${parsed.data.status}`,
+      before: { status: before?.status },
+      after: { status: parsed.data.status },
+    },
+  });
+
+  return NextResponse.json(plan);
 }

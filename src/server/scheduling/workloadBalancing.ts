@@ -40,12 +40,16 @@ function isEligible(resource: EligibleResource, street: DueStreet): boolean {
  * that still has capacity. Streets nobody has room/eligibility for come
  * back as `unassigned` so the manager can see the gap immediately.
  */
-export function balanceWorkload(streets: DueStreet[], resources: EligibleResource[]) {
+export function balanceWorkload(
+  streets: DueStreet[],
+  resources: EligibleResource[],
+  initialLoadMin: Map<string, number> = new Map()
+) {
   const capacityMin = new Map<string, number>();
   const loadMin = new Map<string, number>();
   for (const r of resources) {
     capacityMin.set(r.id, hhmmToMinutes(r.workHoursEnd) - hhmmToMinutes(r.workHoursStart));
-    loadMin.set(r.id, 0);
+    loadMin.set(r.id, initialLoadMin.get(r.id) ?? 0);
   }
 
   const assignments = new Map<string, DueStreet[]>();

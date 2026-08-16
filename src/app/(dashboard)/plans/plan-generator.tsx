@@ -32,12 +32,14 @@ export function PlanGenerator({
   zoneCount,
   resourceCount,
   streetCount,
+  initialDate,
 }: {
   zoneCount: number;
   resourceCount: number;
   streetCount: number;
+  initialDate?: string;
 }) {
-  const [date, setDate] = useState(todayStr());
+  const [date, setDate] = useState(initialDate ?? todayStr());
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<PlanResult | null>(null);
   const [error, setError] = useState<string | null>(null);
