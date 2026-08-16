@@ -112,12 +112,14 @@ export function ZonesManager({ zones, unassignedCount }: { zones: ZoneRow[]; una
             </div>
             <div className="text-sm text-muted">{z.streetCount} רחובות</div>
             <div className="text-sm text-muted">{(z.totalLengthM / 1000).toFixed(1)} ק״מ</div>
-            <button
-              onClick={() => deleteZone(z.id)}
-              className="mt-3 text-xs text-danger hover:underline"
-            >
-              מחיקה
-            </button>
+            <div className="mt-3 flex items-center gap-3">
+              <a href={`/zones/${z.id}/boundary`} className="text-xs text-accent hover:underline">
+                ציור גבול על המפה
+              </a>
+              <button onClick={() => deleteZone(z.id)} className="text-xs text-danger hover:underline">
+                מחיקה
+              </button>
+            </div>
           </div>
         ))}
         {zones.length === 0 && (

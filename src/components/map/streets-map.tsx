@@ -61,13 +61,19 @@ export function StreetsMap({
         id: "zones-fill",
         type: "fill",
         source: "zones",
-        paint: { "fill-color": ["get", "color"], "fill-opacity": 0.08 },
+        paint: { "fill-color": ["get", "color"], "fill-opacity": 0.18 },
+      });
+      map.addLayer({
+        id: "zones-line-halo",
+        type: "line",
+        source: "zones",
+        paint: { "line-color": "#ffffff", "line-width": 6, "line-opacity": 0.9 },
       });
       map.addLayer({
         id: "zones-line",
         type: "line",
         source: "zones",
-        paint: { "line-color": ["get", "color"], "line-width": 2 },
+        paint: { "line-color": ["get", "color"], "line-width": 3 },
       });
 
       map.addSource("streets", { type: "geojson", data: streetsRes });
@@ -99,6 +105,9 @@ export function StreetsMap({
       map.on("mouseleave", "streets-line", () => (map.getCanvas().style.cursor = ""));
 
       setLoaded(true);
+      if (process.env.NODE_ENV !== "production") {
+        (window as unknown as { __map: MapLibreMap }).__map = map;
+      }
     });
 
     return () => {
