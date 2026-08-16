@@ -1,0 +1,346 @@
+// Prisma schema — מערכת ניהול תוכנית ניקיון עירונית, כפר סבא
+// Geometry columns (PostGIS) are declared as Unsupported() — Prisma Client
+// cannot read/write them directly; all spatial reads/writes go through
+// src/server/geo.service.ts using $queryRaw / $executeRaw (ST_* functions).
+
+generator client {
+  provider        = "prisma-client"
+  output          = "../src/generated/prisma"
+  previewFeatures = ["postgresqlExtensions"]
+}
+
+datasource db {
+  provider   = "postgresql"
+  extensions = [postgis]
+}
+
+// ---------- Enums ----------
+
+enum UserRole {
+  ADMIN
+  MANAGER
+  EMPLOYEE
+}
+
+enum StreetType {
+  STREET
+  PATH
+  PEDESTRIAN_MALL
+  PUBLIC_AREA
+  OTHER
+}
+
+enum Priority {
+  CRITICAL
+  HIGH
+  NORMAL
+  LOW
+}
+
+enum FrequencyType {
+  DAILY
+  TIMES_PER_WEEK
+  WEEKLY
+  SPECIFIC_DAYS
+  AS_NEEDED
+}
+
+enum DataSource {
+  OSM
+  MANUAL
+}
+
+enum ResourceStatus {
+  ACTIVE
+  BROKEN
+  MAINTENANCE
+  INACTIVE
+}
+
+enum AvailabilityStatus {
+  AVAILABLE
+  UNAVAILABLE
+  BROKEN
+  MAINTENANCE
+}
+
+enum WorkPlanStatus {
+  DRAFT
+  CONFIRMED
+  ARCHIVED
+}
+
+enum TaskStatus {
+  PENDING
+  IN_PROGRESS
+  DONE
+  NOT_DONE
+  PROBLEM
+}
+
+enum ImportType {
+  STREETS
+  RESOURCES
+}
+
+enum ImportStatus {
+  PENDING
+  SUCCESS
+  PARTIAL
+  FAILED
+}
+
+// ---------- Core entities ----------
+
+model User {
+  id           String   @id @default(cuid())
+  name         String
+  email        String   @unique
+  passwordHash String   @map("password_hash")
+  role         UserRole @default(EMPLOYEE)
+  phone        String?
+  active       Boolean  @default(true)
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  // an employee may be permanently assigned to one or more resources
+  assignedResources Resource[]        @relation("ResourceEmployee")
+  createdWorkPlans  WorkPlan[]        @relation("WorkPlanCreatedBy")
+  workPlanChanges   WorkPlanChange[]  @relation("WorkPlanChangeBy")
+  importBatches     ImportBatch[]     @relation("ImportedBy")
+
+  @@map("users")
+}
+
+model Zone {
+  id          String  @id @default(cuid())
+  name        String
+  code        String  @unique
+  color       String  @default("#2563eb")
+  description String?
+  active      Boolean @default(true)
+
+  // geometry(Polygon, 4326) — accessed via geo.service.ts raw SQL
+  geometry Unsupported("geometry(Polygon, 4326)")?
+
+  streets           Street[]
+  allowedByResource Resource[] @relation("ResourceAllowedZones")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("zones")
+}
+
+model Street {
+  id                    String        @id @default(cuid())
+  name                  String
+  type                  StreetType    @default(STREET)
+  zoneId                String?       @map("zone_id")
+  zone                  Zone?         @relation(fields: [zoneId], references: [id], onDelete: SetNull)
+  lengthM               Float?        @map("length_m")
+  startPointLat         Float?        @map("start_point_lat")
+  startPointLon         Float?        @map("start_point_lon")
+  endPointLat            Float?        @map("end_point_lat")
+  endPointLon            Float?        @map("end_point_lon")
+
+  // geometry(LineString, 4326) — accessed via geo.service.ts raw SQL
+  geometry Unsupported("geometry(LineString, 4326)")?
+
+  priority              Priority      @default(NORMAL)
+  cleaningFrequency     Json          @map("cleaning_frequency")
+  // e.g. {"type":"TIMES_PER_WEEK","timesPerWeek":2} | {"type":"SPECIFIC_DAYS","days":["SUN","WED"]}
+
+  estimatedCleanMinutes Int?          @map("estimated_clean_minutes")
+  notes                 String?
+  active                Boolean       @default(true)
+  source                DataSource    @default(MANUAL)
+  osmId                 String?       @unique @map("osm_id")
+
+  allowedResourceTypes  ResourceType[]        @relation("StreetAllowedResourceTypes")
+  allowedByResource     Resource[]            @relation("ResourceAllowedStreets")
+  workPlanTasks         WorkPlanTask[]
+  cleaningLogs          StreetCleaningLog[]
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@index([zoneId])
+  @@map("streets")
+}
+
+model ResourceType {
+  id   String @id @default(cuid())
+  name String @unique
+  code String @unique
+
+  resources     Resource[]
+  allowedOnStreets Street[] @relation("StreetAllowedResourceTypes")
+
+  @@map("resource_types")
+}
+
+model Resource {
+  id                 String         @id @default(cuid())
+  resourceTypeId     String         @map("resource_type_id")
+  resourceType       ResourceType   @relation(fields: [resourceTypeId], references: [id])
+  identifier         String         // מספר רכב / מספר כלי
+  name               String?
+  assignedEmployeeId String?        @map("assigned_employee_id")
+  assignedEmployee   User?          @relation("ResourceEmployee", fields: [assignedEmployeeId], references: [id], onDelete: SetNull)
+  status             ResourceStatus @default(ACTIVE)
+
+  allowedZones   Zone[]   @relation("ResourceAllowedZones")
+  allowedStreets Street[] @relation("ResourceAllowedStreets")
+
+  workHoursStart String? @map("work_hours_start") // "07:00"
+  workHoursEnd   String? @map("work_hours_end")   // "14:30"
+
+  attributes Json @default("{}") // שדות ייחודיים לפי סוג משאב (קיבולת, מהירות עבודה...)
+  notes      String?
+  active     Boolean @default(true)
+
+  availability  ResourceAvailability[]
+  workPlanTasks WorkPlanTask[]
+  telemetry     TelemetryEvent[]
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@unique([resourceTypeId, identifier])
+  @@map("resources")
+}
+
+model ResourceAvailability {
+  id                String              @id @default(cuid())
+  resourceId        String              @map("resource_id")
+  resource          Resource            @relation(fields: [resourceId], references: [id], onDelete: Cascade)
+  date              DateTime            @db.Date
+  status            AvailabilityStatus  @default(AVAILABLE)
+  reason            String?
+  timeOverrideStart String?             @map("time_override_start")
+  timeOverrideEnd   String?             @map("time_override_end")
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@unique([resourceId, date])
+  @@index([date])
+  @@map("resource_availability")
+}
+
+// ---------- Work plans ----------
+
+model WorkPlan {
+  id              String         @id @default(cuid())
+  date            DateTime       @db.Date
+  versionNumber   Int            @map("version_number")
+  status          WorkPlanStatus @default(DRAFT)
+  createdById     String         @map("created_by")
+  createdBy       User           @relation("WorkPlanCreatedBy", fields: [createdById], references: [id])
+  createdAt       DateTime       @default(now()) @map("created_at")
+  parentVersionId String?        @map("parent_version_id")
+  parentVersion   WorkPlan?      @relation("WorkPlanVersions", fields: [parentVersionId], references: [id])
+  childVersions   WorkPlan[]     @relation("WorkPlanVersions")
+
+  tasks   WorkPlanTask[]
+  changes WorkPlanChange[]
+
+  @@unique([date, versionNumber])
+  @@index([date])
+  @@map("work_plans")
+}
+
+model WorkPlanTask {
+  id             String     @id @default(cuid())
+  workPlanId     String     @map("work_plan_id")
+  workPlan       WorkPlan   @relation(fields: [workPlanId], references: [id], onDelete: Cascade)
+  resourceId     String     @map("resource_id")
+  resource       Resource   @relation(fields: [resourceId], references: [id])
+  streetId       String     @map("street_id")
+  street         Street     @relation(fields: [streetId], references: [id])
+  sequenceOrder  Int        @map("sequence_order")
+
+  plannedStart DateTime @map("planned_start")
+  plannedEnd   DateTime @map("planned_end")
+  distanceM      Float?   @map("distance_m")
+  travelTimeMin  Float?   @map("travel_time_min")
+  cleanTimeMin   Float?   @map("clean_time_min")
+
+  status TaskStatus @default(PENDING)
+
+  actualStart    DateTime? @map("actual_start")
+  actualEnd      DateTime? @map("actual_end")
+  actualNotes    String?   @map("actual_notes")
+  employeeComment String?  @map("employee_comment")
+
+  cleaningLogs StreetCleaningLog[]
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@index([workPlanId])
+  @@index([resourceId])
+  @@index([streetId])
+  @@map("work_plan_tasks")
+}
+
+model WorkPlanChange {
+  id          String   @id @default(cuid())
+  workPlanId  String   @map("work_plan_id")
+  workPlan    WorkPlan @relation(fields: [workPlanId], references: [id], onDelete: Cascade)
+  changedById String   @map("changed_by")
+  changedBy   User     @relation("WorkPlanChangeBy", fields: [changedById], references: [id])
+  changedAt   DateTime @default(now()) @map("changed_at")
+  changeType  String   @map("change_type")
+  before      Json?
+  after       Json?
+  description String?
+
+  @@index([workPlanId])
+  @@map("work_plan_changes")
+}
+
+model StreetCleaningLog {
+  id             String        @id @default(cuid())
+  streetId       String        @map("street_id")
+  street         Street        @relation(fields: [streetId], references: [id], onDelete: Cascade)
+  date           DateTime      @db.Date
+  workPlanTaskId String?       @map("work_plan_task_id")
+  workPlanTask   WorkPlanTask? @relation(fields: [workPlanTaskId], references: [id], onDelete: SetNull)
+  completed      Boolean       @default(false)
+
+  @@index([streetId, date])
+  @@map("street_cleaning_log")
+}
+
+// ---------- Future GPS / Ituran integration (schema-ready, unused in phase 1) ----------
+
+model TelemetryEvent {
+  id         String   @id @default(cuid())
+  resourceId String   @map("resource_id")
+  resource   Resource @relation(fields: [resourceId], references: [id], onDelete: Cascade)
+  timestamp  DateTime
+  lat        Float
+  lon        Float
+  speed      Float?
+  source     String   @default("manual")
+
+  @@index([resourceId, timestamp])
+  @@map("telemetry_events")
+}
+
+// ---------- Import tracking ----------
+
+model ImportBatch {
+  id           String       @id @default(cuid())
+  type         ImportType
+  filename     String
+  uploadedById String       @map("uploaded_by")
+  uploadedBy   User         @relation("ImportedBy", fields: [uploadedById], references: [id])
+  uploadedAt   DateTime     @default(now()) @map("uploaded_at")
+  rowCount     Int          @map("row_count")
+  status       ImportStatus @default(PENDING)
+  errorLog     Json?        @map("error_log")
+
+  @@map("import_batches")
+}
