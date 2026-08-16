@@ -1,6 +1,8 @@
 import { prisma } from "@/lib/prisma";
 import { PageHeader } from "@/components/page-header";
 import { StreetsExplorer } from "./streets-explorer";
+import { StreetImportButton } from "./street-import-button";
+import { StreetAddButton } from "./street-add-button";
 
 const TYPE_LABELS: Record<string, string> = {
   STREET: "רחוב",
@@ -46,6 +48,12 @@ export default async function StreetsPage() {
       <PageHeader
         title="רחובות ושבילים"
         subtitle={`${streets.length} רחובות ושבילים פעילים · נתונים אמיתיים מ-OpenStreetMap`}
+        actions={
+          <>
+            <StreetImportButton />
+            <StreetAddButton zones={zones.map((z) => ({ id: z.id, name: z.name }))} />
+          </>
+        }
       />
       <StreetsExplorer rows={rows} zones={zones.map((z) => ({ id: z.id, name: z.name, color: z.color }))} />
     </div>
