@@ -71,8 +71,18 @@ export function ReportsIndex() {
       </div>
 
       <div className="rounded-xl border border-panel-border bg-panel p-4">
-        <div className="font-semibold">היסטוריית גרסאות ותוכנית מול ביצוע</div>
-        <div className="mb-3 text-sm text-muted">כל גרסאות התוכנית, כולל שינויים וסטטוס ביצוע בפועל לכל משימה</div>
+        <div className="mb-3">
+          <div className="font-semibold">תוכנית מול ביצוע</div>
+          <div className="text-sm text-muted">השוואת זמנים מתוכננים מול בפועל, לפי דיווחי העובדים</div>
+        </div>
+        <a href={`/reports/plan-vs-actual?date=${date}`} className="rounded-md border border-panel-border px-3 py-1.5 text-sm hover:bg-accent/10">
+          צפייה ←
+        </a>
+      </div>
+
+      <div className="rounded-xl border border-panel-border bg-panel p-4">
+        <div className="font-semibold">היסטוריית גרסאות</div>
+        <div className="mb-3 text-sm text-muted">כל גרסאות התוכנית, כולל שינויים</div>
         <a href="/plans/history" className="rounded-md border border-panel-border px-3 py-1.5 text-sm hover:bg-accent/10">
           עבור להיסטוריה ←
         </a>
