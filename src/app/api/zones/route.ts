@@ -11,6 +11,9 @@ const createSchema = z.object({
 });
 
 export async function GET() {
+  const session = await auth();
+  if (!session?.user) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+
   const zones = await prisma.zone.findMany({
     where: { active: true },
     orderBy: { code: "asc" },

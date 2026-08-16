@@ -7,6 +7,7 @@ const NAV_ITEMS = [
   { href: "/streets", label: "רחובות ושבילים" },
   { href: "/zones", label: "אזורים" },
   { href: "/resources", label: "משאבים" },
+  { href: "/users", label: "משתמשים" },
   { href: "/plans", label: "תוכניות עבודה" },
   { href: "/plans/weekly", label: "לוח שבועי" },
   { href: "/plans/history", label: "היסטוריית גרסאות" },

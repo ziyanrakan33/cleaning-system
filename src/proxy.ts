@@ -6,7 +6,11 @@ const PUBLIC_PATHS = ["/login"];
 export default auth((req) => {
   const { pathname } = req.nextUrl;
 
-  if (PUBLIC_PATHS.some((p) => pathname.startsWith(p)) || pathname.startsWith("/api/auth")) {
+  // API routes handle their own auth/role checks per-handler and must return
+  // JSON, not an HTML redirect — a redirected fetch() breaks with a JSON
+  // parse error client-side. Only page navigation goes through the checks
+  // below.
+  if (PUBLIC_PATHS.some((p) => pathname.startsWith(p)) || pathname.startsWith("/api/")) {
     return NextResponse.next();
   }
 

@@ -1,4 +1,5 @@
 import { auth, signOut } from "@/lib/auth";
+import { MyDayClient } from "./my-day-client";
 
 export default async function MyDayPage() {
   const session = await auth();
@@ -20,9 +21,7 @@ export default async function MyDayPage() {
         </form>
       </div>
 
-      <div className="rounded-xl border border-dashed border-panel-border p-8 text-center text-sm text-muted">
-        עדיין אין לך משימות משובצות. תוכניות עבודה יופיעו כאן לאחר בניית מנוע התזמון (Phase 2) והפקת תוכנית ליום.
-      </div>
+      <MyDayClient />
     </div>
   );
 }

@@ -3,7 +3,7 @@ import { PageHeader } from "@/components/page-header";
 import { ResourcesManager } from "./resources-manager";
 
 export default async function ResourcesPage() {
-  const [resourceTypes, resources, zones] = await Promise.all([
+  const [resourceTypes, resources, zones, employees] = await Promise.all([
     prisma.resourceType.findMany({ orderBy: { name: "asc" } }),
     prisma.resource.findMany({
       where: { active: true },
@@ -11,6 +11,7 @@ export default async function ResourcesPage() {
       include: { resourceType: true, assignedEmployee: { select: { id: true, name: true } } },
     }),
     prisma.zone.findMany({ where: { active: true }, orderBy: { name: "asc" } }),
+    prisma.user.findMany({ where: { active: true, role: "EMPLOYEE" }, orderBy: { name: "asc" }, select: { id: true, name: true } }),
   ]);
 
   return (
@@ -27,11 +28,13 @@ export default async function ResourcesPage() {
           name: r.name,
           typeName: r.resourceType.name,
           status: r.status,
+          assignedEmployeeId: r.assignedEmployee?.id ?? null,
           assignedEmployeeName: r.assignedEmployee?.name ?? null,
           workHoursStart: r.workHoursStart,
           workHoursEnd: r.workHoursEnd,
         }))}
         zones={zones.map((z) => ({ id: z.id, name: z.name }))}
+        employees={employees}
       />
     </div>
   );

@@ -1,8 +1,14 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { auth } from "@/lib/auth";
 import { parseDateOnly } from "@/server/dateUtils";
 
 export async function GET(req: Request) {
+  const session = await auth();
+  if (!session?.user || (session.user.role !== "ADMIN" && session.user.role !== "MANAGER")) {
+    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  }
+
   const { searchParams } = new URL(req.url);
   const dateStr = searchParams.get("date");
   if (!dateStr) return NextResponse.json({ error: "missing date" }, { status: 400 });

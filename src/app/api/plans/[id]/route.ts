@@ -6,6 +6,11 @@ import { getStreetGeometryForTasks } from "@/server/geo.service";
 import { formatDateOnly } from "@/server/dateUtils";
 
 export async function GET(_req: Request, { params }: { params: Promise<{ id: string }> }) {
+  const session = await auth();
+  if (!session?.user || (session.user.role !== "ADMIN" && session.user.role !== "MANAGER")) {
+    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  }
+
   const { id } = await params;
 
   const workPlan = await prisma.workPlan.findUnique({

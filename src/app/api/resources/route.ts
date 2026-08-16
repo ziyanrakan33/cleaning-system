@@ -5,6 +5,9 @@ import { auth } from "@/lib/auth";
 import type { Prisma } from "@/generated/prisma/client";
 
 export async function GET() {
+  const session = await auth();
+  if (!session?.user) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+
   const resources = await prisma.resource.findMany({
     where: { active: true },
     orderBy: { createdAt: "desc" },

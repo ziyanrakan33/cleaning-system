@@ -1,8 +1,14 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { auth } from "@/lib/auth";
 import { parseDateOnly, addDaysToDateOnly, formatDateOnly } from "@/server/dateUtils";
 
 export async function GET(req: Request) {
+  const session = await auth();
+  if (!session?.user || (session.user.role !== "ADMIN" && session.user.role !== "MANAGER")) {
+    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  }
+
   const { searchParams } = new URL(req.url);
   const startStr = searchParams.get("start");
   if (!startStr) return NextResponse.json({ error: "missing start" }, { status: 400 });

@@ -11,6 +11,9 @@ const setSchema = z.object({
 });
 
 export async function GET(_req: Request, { params }: { params: Promise<{ id: string }> }) {
+  const session = await auth();
+  if (!session?.user) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+
   const { id } = await params;
   const rows = await prisma.resourceAvailability.findMany({
     where: { resourceId: id },

@@ -11,6 +11,7 @@ type ResourceRow = {
   name: string | null;
   typeName: string;
   status: string;
+  assignedEmployeeId: string | null;
   assignedEmployeeName: string | null;
   workHoursStart: string | null;
   workHoursEnd: string | null;
@@ -28,10 +29,12 @@ export function ResourcesManager({
   resourceTypes,
   resources,
   zones,
+  employees,
 }: {
   resourceTypes: ResourceType[];
   resources: ResourceRow[];
   zones: Zone[];
+  employees: { id: string; name: string }[];
 }) {
   const router = useRouter();
   const [showTypeForm, setShowTypeForm] = useState(false);
@@ -45,6 +48,7 @@ export function ResourcesManager({
   const [workHoursStart, setWorkHoursStart] = useState("07:00");
   const [workHoursEnd, setWorkHoursEnd] = useState("14:30");
   const [selectedZones, setSelectedZones] = useState<string[]>([]);
+  const [assignedEmployeeId, setAssignedEmployeeId] = useState("");
   const [saving, setSaving] = useState(false);
 
   async function createType(e: React.FormEvent) {
@@ -74,6 +78,7 @@ export function ResourcesManager({
           workHoursStart,
           workHoursEnd,
           allowedZoneIds: selectedZones,
+          assignedEmployeeId: assignedEmployeeId || undefined,
         }),
       });
       if (res.ok) {
@@ -92,6 +97,15 @@ export function ResourcesManager({
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ status }),
+    });
+    router.refresh();
+  }
+
+  async function updateEmployee(id: string, employeeId: string) {
+    await fetch(`/api/resources/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ assignedEmployeeId: employeeId || null }),
     });
     router.refresh();
   }
@@ -206,6 +220,19 @@ export function ResourcesManager({
             ))}
           </select>
         </div>
+        <div>
+          <label className="mb-1 block text-xs text-muted">עובד מוצמד</label>
+          <select
+            value={assignedEmployeeId}
+            onChange={(e) => setAssignedEmployeeId(e.target.value)}
+            className="rounded-md border border-panel-border bg-transparent px-2 py-1.5 text-sm outline-none"
+          >
+            <option value="">ללא</option>
+            {employees.map((emp) => (
+              <option key={emp.id} value={emp.id}>{emp.name}</option>
+            ))}
+          </select>
+        </div>
         <button
           type="submit"
           disabled={saving || !resourceTypeId}
@@ -234,7 +261,18 @@ export function ResourcesManager({
                 <td className="px-4 py-2 font-mono text-xs">{r.identifier}</td>
                 <td className="px-4 py-2">{r.name ?? "—"}</td>
                 <td className="px-4 py-2 text-muted">{r.typeName}</td>
-                <td className="px-4 py-2 text-muted">{r.assignedEmployeeName ?? "—"}</td>
+                <td className="px-4 py-2">
+                  <select
+                    value={r.assignedEmployeeId ?? ""}
+                    onChange={(e) => updateEmployee(r.id, e.target.value)}
+                    className="rounded border border-panel-border bg-transparent px-2 py-1 text-xs outline-none"
+                  >
+                    <option value="">ללא</option>
+                    {employees.map((emp) => (
+                      <option key={emp.id} value={emp.id}>{emp.name}</option>
+                    ))}
+                  </select>
+                </td>
                 <td className="px-4 py-2 text-muted" dir="ltr">
                   {r.workHoursStart && r.workHoursEnd ? `${r.workHoursStart}–${r.workHoursEnd}` : "—"}
                 </td>
