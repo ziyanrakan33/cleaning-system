@@ -2,10 +2,23 @@
 
 import { useRouter } from "next/navigation";
 import { useState } from "react";
+import { ROLE_LABELS, type Role } from "@/lib/permissions";
 
 type UserRow = { id: string; name: string; email: string; role: string; phone: string | null };
 
-const ROLE_LABEL: Record<string, string> = { ADMIN: "מנהל מערכת", MANAGER: "מבקר", EMPLOYEE: "עובד" };
+// MANAGER is a legacy role kept only so old accounts keep working — new users
+// are never created with it, so it is left out of the create-form dropdown.
+const ASSIGNABLE_ROLES: Role[] = [
+  "EMPLOYEE",
+  "SITE_SUPERVISOR",
+  "CONTRACTOR_MANAGER",
+  "INSPECTOR",
+  "DEPT_MANAGER",
+  "CITY_MANAGER",
+  "FINANCE",
+  "VIEWER",
+  "ADMIN",
+];
 
 export function UsersManager({ users }: { users: UserRow[] }) {
   const router = useRouter();
@@ -61,9 +74,9 @@ export function UsersManager({ users }: { users: UserRow[] }) {
         <div>
           <label className="mb-1 block text-xs text-muted">תפקיד</label>
           <select value={role} onChange={(e) => setRole(e.target.value)} className="rounded-md border border-panel-border bg-transparent px-3 py-1.5 text-sm outline-none">
-            <option value="EMPLOYEE">עובד</option>
-            <option value="MANAGER">מבקר</option>
-            <option value="ADMIN">מנהל מערכת</option>
+            {ASSIGNABLE_ROLES.map((r) => (
+              <option key={r} value={r}>{ROLE_LABELS[r]}</option>
+            ))}
           </select>
         </div>
         <div>
@@ -90,7 +103,7 @@ export function UsersManager({ users }: { users: UserRow[] }) {
             <tr key={u.id} className="border-b border-panel-border/60">
               <td className="px-4 py-2">{u.name}</td>
               <td className="px-4 py-2 text-muted" dir="ltr">{u.email}</td>
-              <td className="px-4 py-2 text-muted">{ROLE_LABEL[u.role] ?? u.role}</td>
+              <td className="px-4 py-2 text-muted">{ROLE_LABELS[u.role as Role] ?? u.role}</td>
               <td className="px-4 py-2 text-muted" dir="ltr">{u.phone ?? "—"}</td>
             </tr>
           ))}

@@ -30,11 +30,13 @@ export function ResourcesManager({
   resources,
   zones,
   employees,
+  canEdit,
 }: {
   resourceTypes: ResourceType[];
   resources: ResourceRow[];
   zones: Zone[];
   employees: { id: string; name: string }[];
+  canEdit: boolean;
 }) {
   const router = useRouter();
   const [showTypeForm, setShowTypeForm] = useState(false);
@@ -122,12 +124,14 @@ export function ResourcesManager({
           ))}
           {resourceTypes.length === 0 && <span className="text-muted">אין עדיין סוגי משאב</span>}
         </div>
-        <button onClick={() => setShowTypeForm((s) => !s)} className="text-sm text-accent hover:underline">
-          + סוג משאב חדש
-        </button>
+        {canEdit && (
+          <button onClick={() => setShowTypeForm((s) => !s)} className="text-sm text-accent hover:underline">
+            + סוג משאב חדש
+          </button>
+        )}
       </div>
 
-      {showTypeForm && (
+      {canEdit && showTypeForm && (
         <form onSubmit={createType} className="mb-4 flex items-end gap-3 rounded-xl border border-panel-border bg-panel p-4">
           <div>
             <label className="mb-1 block text-xs text-muted">שם הסוג</label>
@@ -156,6 +160,7 @@ export function ResourcesManager({
         </form>
       )}
 
+      {canEdit && (
       <form onSubmit={createResource} className="mb-6 flex flex-wrap items-end gap-3 rounded-xl border border-panel-border bg-panel p-4">
         <div>
           <label className="mb-1 block text-xs text-muted">סוג</label>
@@ -241,6 +246,7 @@ export function ResourcesManager({
           הוסף משאב
         </button>
       </form>
+      )}
 
       <table className="w-full overflow-hidden rounded-xl border border-panel-border bg-panel text-sm">
         <thead className="text-xs text-muted">

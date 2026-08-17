@@ -1,5 +1,6 @@
 import ExcelJS from "exceljs";
 import { auth } from "@/lib/auth";
+import { can } from "@/lib/permissions";
 import { getDashboardStats } from "@/server/dashboard";
 import { formatDateOnly, todayDateOnly } from "@/server/dateUtils";
 
@@ -7,7 +8,7 @@ const PRIORITY_LABEL: Record<string, string> = { CRITICAL: "קריטי", HIGH: "
 
 export async function GET() {
   const session = await auth();
-  if (!session?.user || (session.user.role !== "ADMIN" && session.user.role !== "MANAGER")) {
+  if (!session?.user || !can(session.user.role, "reports.view")) {
     return new Response("unauthorized", { status: 401 });
   }
 

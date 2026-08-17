@@ -3,10 +3,11 @@ import { z } from "zod";
 import bcrypt from "bcryptjs";
 import { prisma } from "@/lib/prisma";
 import { auth } from "@/lib/auth";
+import { can } from "@/lib/permissions";
 
 export async function GET() {
   const session = await auth();
-  if (!session?.user || (session.user.role !== "ADMIN" && session.user.role !== "MANAGER")) {
+  if (!session?.user || !can(session.user.role, "users.manage")) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
   const users = await prisma.user.findMany({
@@ -21,13 +22,24 @@ const createSchema = z.object({
   name: z.string().min(1),
   email: z.string().email(),
   password: z.string().min(6),
-  role: z.enum(["ADMIN", "MANAGER", "EMPLOYEE"]),
+  role: z.enum([
+    "ADMIN",
+    "MANAGER",
+    "CITY_MANAGER",
+    "DEPT_MANAGER",
+    "INSPECTOR",
+    "CONTRACTOR_MANAGER",
+    "SITE_SUPERVISOR",
+    "EMPLOYEE",
+    "VIEWER",
+    "FINANCE",
+  ]),
   phone: z.string().optional(),
 });
 
 export async function POST(req: Request) {
   const session = await auth();
-  if (!session?.user || session.user.role !== "ADMIN") {
+  if (!session?.user || !can(session.user.role, "users.manage")) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
   const parsed = createSchema.safeParse(await req.json());

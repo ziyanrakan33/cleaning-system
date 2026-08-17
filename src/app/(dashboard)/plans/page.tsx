@@ -9,7 +9,7 @@ export default async function PlansPage({
 }) {
   const params = await searchParams;
   const [zoneCount, resourceCount, streetCount] = await Promise.all([
-    prisma.zone.count({ where: { active: true } }),
+    prisma.operationalZone.count({ where: { active: true } }),
     prisma.resource.count({ where: { active: true, status: "ACTIVE" } }),
     prisma.street.count({ where: { active: true } }),
   ]);

@@ -1,7 +1,10 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { auth } from "@/lib/auth";
+import { can } from "@/lib/permissions";
 import { setZoneGeometry, type LonLat } from "@/server/geo.service";
+import { runSpatialJoin } from "@/server/geo/spatialJoin";
+import { audit } from "@/server/audit";
 import { prisma } from "@/lib/prisma";
 
 const bodySchema = z.object({
@@ -10,8 +13,11 @@ const bodySchema = z.object({
 
 export async function PUT(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const session = await auth();
-  if (!session?.user || (session.user.role !== "ADMIN" && session.user.role !== "MANAGER")) {
-    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  if (!session?.user) {
+    return NextResponse.json({ error: "לא מזוהה" }, { status: 401 });
+  }
+  if (!can(session.user.role, "zones.editBoundary")) {
+    return NextResponse.json({ error: "אין הרשאה לערוך גבולות אזורים" }, { status: 403 });
   }
 
   const { id } = await params;
@@ -28,6 +34,55 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
       : [...ring, ring[0]];
 
   await setZoneGeometry(id, closed);
-  const zone = await prisma.zone.findUnique({ where: { id }, select: { id: true, name: true } });
-  return NextResponse.json({ ok: true, zone });
+
+  // Drawn by hand on the map, so it is a deliberate human decision — record it
+  // as verified rather than leaving it looking like an unconfirmed extraction.
+  const zone = await prisma.operationalZone.update({
+    where: { id },
+    data: {
+      verificationStatus: "VERIFIED",
+      confidence: "HIGH",
+      manuallyOverridden: true,
+    },
+    select: { id: true, name: true },
+  });
+
+  await prisma.sourceEvidence.updateMany({
+    where: { entityType: "OperationalZone", entityId: id, fieldName: "geometry" },
+    data: {
+      sourceType: "MANUAL_ENTRY",
+      sourceFile: "ציור ידני במסך עורך הגבולות",
+      extractedValue: `${closed.length} נקודות`,
+      confidence: "HIGH",
+      verificationStatus: "VERIFIED",
+      verifiedById: session.user.id,
+      verifiedAt: new Date(),
+      notes: "הגבול שורטט ידנית על ידי מנהל ולא הופק מצילום המפה.",
+    },
+  });
+
+  await audit({
+    entityType: "OperationalZone",
+    entityId: id,
+    action: "DRAW_BOUNDARY",
+    userId: session.user.id,
+    after: { points: closed.length },
+    description: `גבול ${zone.name} שורטט ידנית (${closed.length} נקודות)`,
+  });
+
+  // Street→zone attribution depends on this boundary, so recompute immediately
+  // rather than letting the map and the kilometre totals lag behind it.
+  const join = await runSpatialJoin();
+
+  return NextResponse.json({
+    ok: true,
+    zone,
+    join: {
+      segmentsCreated: join.segmentsCreated,
+      streetsAssigned: join.streetsAssigned,
+      streetsUnassigned: join.streetsUnassigned,
+      streetsCrossingZones: join.streetsCrossingZones,
+      segmentsRequiringReview: join.segmentsRequiringReview,
+    },
+  });
 }

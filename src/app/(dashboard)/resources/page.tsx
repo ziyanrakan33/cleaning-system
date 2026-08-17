@@ -1,8 +1,13 @@
 import { prisma } from "@/lib/prisma";
+import { auth } from "@/lib/auth";
+import { can } from "@/lib/permissions";
 import { PageHeader } from "@/components/page-header";
 import { ResourcesManager } from "./resources-manager";
 
 export default async function ResourcesPage() {
+  const session = await auth();
+  const canEdit = can(session?.user?.role, "resources.edit");
+
   const [resourceTypes, resources, zones, employees] = await Promise.all([
     prisma.resourceType.findMany({ orderBy: { name: "asc" } }),
     prisma.resource.findMany({
@@ -10,7 +15,7 @@ export default async function ResourcesPage() {
       orderBy: { createdAt: "desc" },
       include: { resourceType: true, assignedEmployee: { select: { id: true, name: true } } },
     }),
-    prisma.zone.findMany({ where: { active: true }, orderBy: { name: "asc" } }),
+    prisma.operationalZone.findMany({ where: { active: true }, orderBy: { name: "asc" } }),
     prisma.user.findMany({ where: { active: true, role: "EMPLOYEE" }, orderBy: { name: "asc" }, select: { id: true, name: true } }),
   ]);
 
@@ -19,6 +24,13 @@ export default async function ResourcesPage() {
       <PageHeader
         title="משאבים"
         subtitle={`${resources.length} משאבים פעילים · ${resourceTypes.length} סוגי משאב מוגדרים`}
+        actions={
+          canEdit ? (
+            <a href="/resources/allocation" className="rounded-md bg-accent px-3 py-1.5 text-sm font-semibold text-accent-foreground">
+              המלצת חלוקת משאבים
+            </a>
+          ) : undefined
+        }
       />
       <ResourcesManager
         resourceTypes={resourceTypes.map((t) => ({ id: t.id, name: t.name, code: t.code }))}
@@ -35,6 +47,7 @@ export default async function ResourcesPage() {
         }))}
         zones={zones.map((z) => ({ id: z.id, name: z.name }))}
         employees={employees}
+        canEdit={canEdit}
       />
     </div>
   );

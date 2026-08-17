@@ -14,7 +14,7 @@ export async function GET() {
   const session = await auth();
   if (!session?.user) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
 
-  const zones = await prisma.zone.findMany({
+  const zones = await prisma.operationalZone.findMany({
     where: { active: true },
     orderBy: { code: "asc" },
     include: { _count: { select: { streets: true } } },
@@ -33,6 +33,6 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
   }
 
-  const zone = await prisma.zone.create({ data: parsed.data });
+  const zone = await prisma.operationalZone.create({ data: parsed.data });
   return NextResponse.json(zone, { status: 201 });
 }

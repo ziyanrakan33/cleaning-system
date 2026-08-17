@@ -8,7 +8,7 @@
 import { prisma } from "@/lib/prisma";
 
 async function main() {
-  const zone = await prisma.zone.findFirst({ where: { code: "Z01" } });
+  const zone = await prisma.operationalZone.findFirst({ where: { code: "Z01" } });
   if (!zone) throw new Error("Zone Z01 not found — run the zone boundary smoke test first.");
 
   const inZone = await prisma.$queryRaw<{ id: string }[]>`

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { auth } from "@/lib/auth";
+import { can } from "@/lib/permissions";
 
 export async function GET() {
   const session = await auth();
@@ -18,7 +19,7 @@ const createSchema = z.object({ name: z.string().min(1), code: z.string().min(1)
 
 export async function POST(req: Request) {
   const session = await auth();
-  if (!session?.user || (session.user.role !== "ADMIN" && session.user.role !== "MANAGER")) {
+  if (!session?.user || !can(session.user.role, "resources.edit")) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
   const parsed = createSchema.safeParse(await req.json());

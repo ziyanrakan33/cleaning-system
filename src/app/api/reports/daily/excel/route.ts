@@ -1,6 +1,7 @@
 import ExcelJS from "exceljs";
 import { prisma } from "@/lib/prisma";
 import { auth } from "@/lib/auth";
+import { can } from "@/lib/permissions";
 import { parseDateOnly, formatDateOnly } from "@/server/dateUtils";
 
 const PRIORITY_LABEL: Record<string, string> = { CRITICAL: "קריטי", HIGH: "גבוה", NORMAL: "רגיל", LOW: "נמוך" };
@@ -8,7 +9,7 @@ const STATUS_LABEL: Record<string, string> = { PENDING: "ממתין", IN_PROGRES
 
 export async function GET(req: Request) {
   const session = await auth();
-  if (!session?.user || (session.user.role !== "ADMIN" && session.user.role !== "MANAGER")) {
+  if (!session?.user || !can(session.user.role, "reports.view")) {
     return new Response("unauthorized", { status: 401 });
   }
 

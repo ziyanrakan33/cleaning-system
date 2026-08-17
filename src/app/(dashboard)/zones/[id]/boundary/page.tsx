@@ -5,7 +5,7 @@ import { ZoneBoundaryEditor } from "./zone-boundary-editor";
 
 export default async function ZoneBoundaryPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const zone = await prisma.zone.findUnique({ where: { id } });
+  const zone = await prisma.operationalZone.findUnique({ where: { id } });
   if (!zone) notFound();
 
   return (

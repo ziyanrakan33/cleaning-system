@@ -9,7 +9,7 @@ export async function getDashboardStats() {
     await Promise.all([
       prisma.street.count({ where: { active: true } }),
       prisma.street.count({ where: { active: true, zoneId: null } }),
-      prisma.zone.count({ where: { active: true } }),
+      prisma.operationalZone.count({ where: { active: true } }),
       prisma.resource.count({ where: { active: true } }),
       prisma.resource.count({ where: { active: true, status: "ACTIVE" } }),
       prisma.resource.count({ where: { active: true, status: "BROKEN" } }),
@@ -53,7 +53,7 @@ export async function getDashboardStats() {
     loadByResource.set(key, entry);
   }
 
-  const zones = await prisma.zone.findMany({ where: { active: true }, select: { id: true, name: true, color: true } });
+  const zones = await prisma.operationalZone.findMany({ where: { active: true }, select: { id: true, name: true, color: true } });
   const loadByZone = new Map<string, { name: string; color: string; taskCount: number }>();
   for (const z of zones) loadByZone.set(z.id, { name: z.name, color: z.color, taskCount: 0 });
   for (const t of latestPlan?.tasks ?? []) {

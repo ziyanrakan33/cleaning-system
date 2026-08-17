@@ -1,36 +1,136 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# מערכת ניהול ובקרה — ניקיון וטיאוט, עיריית כפר סבא
 
-## Getting Started
+מערכת תפעולית לניהול עבודות הניקיון והטיאוט בכפר סבא: אזורי מכרז וקבלנים, אזורי ניקיון תפעוליים, רחובות ושבילים, משאבים, תוכניות עבודה, ביצוע ובקרה — ושכבת אימות שמונעת הצגת נתון לא ודאי כעובדה.
 
-First, run the development server:
+## הרצה
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+npm install
+npm run dev        # http://localhost:3000
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+נדרש `.env` עם `DATABASE_URL` (PostgreSQL + PostGIS) ו-`AUTH_SECRET`.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## הקמה ראשונית
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+```bash
+npx prisma migrate deploy                 # החלת הסכימה
+npx prisma generate                       # יצירת ה-Prisma Client
+npx tsx --env-file=.env scripts/seed-admin.ts        # משתמש מנהל ראשון
+npm run seed:tender                       # מכרז, קבלנים, אזורי מכרז, קטלוג משאבים
+npm run seed:zones                        # 10 אזורי הניקיון התפעוליים
+npm run seed:defect-types                 # 23 סוגי ליקוי מטבלת הקיזוזים במכרז
+npm run seed:demo-roles                   # משתמשי בדיקה: מפקח, קבלן, מנהל עבודה, מנהל אגף, כספים
+```
 
-## Learn More
+> `prisma migrate dev` אינו עובד בסביבה לא-אינטראקטיבית. ראו `prisma/migrations/README.md` — שם מתועד גם למה חובה למחוק את שורות `DROP INDEX` מכל מיגרציה שנוצרת אוטומטית.
 
-To learn more about Next.js, take a look at the following resources:
+## שני סוגי אזורים — אין לערבב
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+| | אזור מכרז (`ContractArea`) | אזור תפעולי (`OperationalZone`) |
+|---|---|---|
+| כמה | **2** | **10** |
+| מה זה | אחריות חוזית של קבלן: משאבים, מחירים, התחייבויות | חלוקה גיאוגרפית של העיר לעבודה יומית |
+| מקור | טבלאות הצעת המחיר | מפת החלוקה |
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+**אזור מכרז 1 → שלג לבן (1986) בע"מ · אזור מכרז 2 → פרח השקד בע"מ.**
 
-## Deploy on Vercel
+הקשר בין 10 האזורים לשני אזורי המכרז **אינו קיים באף אחד מקובצי המקור** — במכרז השורות «קבלן מס׳ 1:» ו«קבלן מס׳ 2:» ריקות, ונספח ו׳ (המפה האזורית) חסר. לכן כל אזור נוצר במצב `REQUIRES_REVIEW` והשיוך נקבע ידנית ב-`/sources`. הפירוט המלא ב-[docs/tender-analysis.md](docs/tender-analysis.md).
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+## תפעול שוטף
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+### הגדרת גבול לאזור
+
+הגבולות אינם ניתנים להפקה מצילום מפת הנייר, ולכן **לא נוצרו גבולות משוערים**. במסך `/zones` לכל אזור:
+
+* **ציור על המפה** — לחיצות להוספת נקודות, ואז «סגור ושמור גבול».
+* **ייבוא GeoJSON / KML** — קואורדינטות ב-WGS84 (EPSG:4326). קובץ ברשת ישראל החדשה (EPSG:2039) יידחה עם הודעה מתאימה; קובץ SHP יש להמיר תחילה.
+
+שמירת גבול מריצה אוטומטית את השיוך הגיאוגרפי.
+
+### שיוך רחובות לאזורים
+
+```bash
+npm run spatial-join
+```
+
+`ST_Intersection` מפצל כל רחוב לפי פוליגוני האזורים ל-`StreetSegment` נפרד לכל אזור, כך שרחוב שחוצה גבול תורם לכל אזור רק את החלק שבתוכו — ולא משויך כולו לפי נקודת האמצע.
+
+* מקטע קצר מ-15 מ׳ → `REQUIRES_REVIEW` (בדרך כלל חיתוך שולי בפינת פוליגון שכן).
+* **רחוב שתוקן ידנית מדולג לחלוטין בהרצה חוזרת.** תיקון ידני לעולם אינו נדרס.
+
+### מסך `/sources` — מקורות ואימות
+
+* **סקירה** — מה אומת, מה ממתין, ומה עדיין לא ידוע.
+* **שיוך אזורים לקבלנים** — ההחלטה שאף מקור אינו מספק.
+* **סתירות** — שני (או שלושה) ערכים עם המקור של כל אחד. המערכת אינה בוחרת; מנהל מכריע.
+* **נתונים שחולצו** — כל ערך עם קובץ המקור, הסעיף/אזור בתמונה ורמת הביטחון.
+* **מקטעים לבדיקה** — מה שהשיוך הגיאוגרפי לא הצליח לקבוע בביטחון.
+
+כל אישור, תיקון ושיוך נרשמים ב-`AuditLog` וב-`ManualOverride`.
+
+## ליקויים, תלונות ופיקוח
+
+### מסך `/defects`
+
+כל ליקוי עובר מחזור חיים קבוע: `NEW → ASSIGNED → IN_PROGRESS → AWAITING_PROOF → FIXED → CLOSED` (עם ענפי `REJECTED`/`APPEALED`). כל מעבר בודק הרשאה ב-`src/server/defects/service.ts`, ואי אפשר לאשר תיקון (`FIXED`) בלי תמונת "אחרי" שהועלתה קודם — נאכף גם בשרת וגם מוצג ב-UI.
+
+* **סוג ליקוי** נבחר מקטלוג טבלת הקיזוזים של המכרז (23 שורות, 80–10,000 ₪) ומציע קיזוז אוטומטית — אך הקיזוז נשאר `PROPOSED` עד שמנהל עם הרשאת `finance.approveDeduction` מאשר אותו (§825). אישור יכול לכלול תוספת 15% הוצאות מיוחדות כשהעירייה ביצעה את התיקון בעצמה (§822).
+* **ערעור** (§826): קבלן יכול לערער תוך 7 ימים מקבלת הקיזוז; למנהל האגף 14 יום להכריע, וההחלטה סופית.
+* **תמונות** (`DefectPhoto`) נשמרות בבסיס הנתונים ומוגשות דרך `/api/defects/photos/[photoId]` המחייב session — לא נכתבות ל-`/public`.
+* מחיר הקיזוז מוסתר משורות ה-history events וגם משדות הקיזוז עצמם לכל תפקיד ללא `finance.view` — כולל תוכן החופשי של האירועים, לא רק השדות המספריים.
+
+### מסכי `/complaints` ו-`/inspections`
+
+תלונות תושבים (§640) ופניות מוקד עם מספר אסמכתא רץ (`TL-2026-0001`). סיורי פיקוח (§561) מחולקים לשתי פעימות יומיות קבועות — 10:00 ו-12:00 — ותומכים בסיור מיוחד (`AD_HOC`).
+
+### מצלמות — מחוץ לתחום
+
+טבלת הקיזוזים במכרז כוללת שורה על מצלמות שלא הותקנו/הופעלו (300 ₪) — הושמטה בכוונה מהקטלוג. ראו `src/server/tender/defectCatalog.ts` (`EXCLUDED_FROM_CATALOG`) ו-`docs/tender-analysis.md`.
+
+## דוחות
+
+מסך `/reports` מרכז 21 דוחות בחמש קטגוריות: ביצוע (יומי/שבועי/חודשי), משאבים ורכב, ליקויים ואיכות, מקורות ואימות, והיסטוריה. לכל דוח: תצוגת הדפסה/PDF, הורדת Excel והורדת CSV.
+
+* **ארכיטקטורה**: כל דוח הוא זוג `query` (ב-`src/server/reports/queries-*.ts`, מחזיר `{columns, rows}` מוכן-לתצוגה) + רישום ב-`src/server/reports/registry.ts`. עמוד ההדפסה קורא ל-query ומעביר ל-`ReportPrintLayout` המשותף; הורדות Excel/CSV עוברות דרך נתיב יחיד — `/api/reports/export?type=...&format=xlsx|csv` — שמפעיל את אותו registry, כדי שלא יהיו שתי מימושים לאותו חישוב.
+* **מקור "מתוכנן"**: כל דוח שמבוסס על תוכנית עבודה קורא את **הגרסה האחרונה שפורסמה** לכל יום בטווח (`getPlanTaskRowsForRange` ב-`src/server/reports/shared.ts`) — לעולם לא גרסת טיוטה ישנה, באותה מוסכמה שכבר נהוגה ב-`src/server/dashboard.ts` וב-`/api/plans/week`.
+* **כספים**: דוחות עם רכיב כספי (חודשי לפי קבלן, ליקויים) מקבלים `showMoney` מתוך `finance.view` ומסתירים עמודות ₪ כשאין הרשאה — לא חוסמים את הדוח כולו.
+* **GPS**: מסך `/reports/gps-deviations` מסביר בפירוש שאין עדיין חיבור GPS/איתורן פעיל (`TelemetryEvent` קיים בסכימה, 0 שורות) — לא מוצג דוח עם נתוני דמה.
+
+## המלצת חלוקת משאבים
+
+מסך `/resources/allocation` מציע כיצד לחלק את כלי הרכב והעובדים החוזיים בין האזורים התפעוליים של כל אזור מכרז, לפי `src/server/resources/allocationEngine.ts`.
+
+* **מקור העומס**: אורך רחוב/שביל לכל אזור (מ-`StreetSegment`, תוצר השיוך הגיאוגרפי), במשקל תדירות הניקיון ועדיפות הרחוב. שני שדות שהמפרט המקורי ביקש — "צפיפות עירונית" ו"מרכזים מסחריים" — הושמטו בכוונה, כי אין להם שדה מקביל במודל הנתונים; ליקויים ותלונות אחרונים מוצגים כהקשר בהסבר אך אינם משפיעים על החישוב, כדי למנוע לולאת משוב.
+* **כשאין מספיק נתונים** — אין אזור תפעולי משויך לאזור המכרז (המצב האמיתי כרגע: 0 מתוך 10), או שאין לאף אזור משויך גבול גיאוגרפי — המסך אינו מציג חלוקה שווה מומצאת אלא מודיע במפורש מה חסר ולאן לפנות (`/sources` לשיוך, `/zones` לגבול).
+* **חלוקה מדויקת**: שיטת "השארית הגדולה ביותר" (largest remainder) מבטיחה שסכום ההמלצות לכל האזורים שווה בדיוק לכמות החוזית — לא סכום מעוגל שסוטה ממנה.
+* **חריגה מהמכסה**: `src/server/resources/service.ts` בודק לפני כל שינוי בשיוך אזורי המשאב (`Resource.allowedZones`) — גם דרך מסך זה וגם דרך עריכה ידנית ב-`/resources` — האם המשאב יעביר את הכמות הפעילה מסוג זה באזור המכרז מעבר למכסה. חריגה **אינה חוסמת**, אך דורשת נימוק ומתועדת (`ManualOverride` + `AuditLog`) עם מי אישר ומתי.
+* **החלה**: "החל הקצאה" מחשבת מחדש את כל השיוך של סוג משאב נתון באזור מכרז נתון (לא תוספת חלקית) ומשחררת משאבים שכבר לא נדרשים בחזרה למאגר הפנוי.
+
+## הרשאות
+
+עשר רמות (`src/lib/permissions.ts`). מחירים נראים רק ל-`ADMIN`, `CITY_MANAGER` ו-`FINANCE`; שיוך אזור לקבלן שמור ל-`ADMIN` ו-`CITY_MANAGER` בלבד; אישור קיזוז שמור ל-`finance.approveDeduction`; הכרעת ערעור שמורה ל-`DEPT_MANAGER`/`CITY_MANAGER`/`ADMIN`; צפייה בדוחות שמורה ל-`reports.view` (כל תפקיד לוח-בקרה, כולל `VIEWER`). אותה פונקציה `can()` אוכפת גם ב-API וגם ב-UI, כדי שכפתור לא יוצג לפעולה שהשרת ידחה.
+
+## בדיקות
+
+```bash
+npm run typecheck
+npm run lint
+npm run test:spatial        # 44 בדיקות: שיוך גיאוגרפי, פיצול, הרשאות, תיקון ידני
+npm run test:defects        # 49 בדיקות: מחזור חיי ליקוי, קיזוז, ערעור, הגנת פרטיות כספית
+npm run test:reports        # 41 בדיקות: כל אחד מ-15 חישובי הדוחות מול נתונים מחושבים ידנית
+npm run test:allocation     # 29 בדיקות: חלוקה לפי עומס, "אין נתונים" כשאין גבול, אכיפת מכסה
+npm run smoke:tender        # end-to-end מול הדפדפן — מקורות, שיוך, גבולות (דורש npm run dev)
+npm run smoke:defects       # end-to-end מול הדפדפן — ליקוי מלא כולל תמונות וערעור בין 3 תפקידים
+npm run smoke:reports       # end-to-end מול הדפדפן — מסך הדוחות, כל תצוגות ההדפסה, ייצוא Excel/CSV
+npm run smoke:allocation    # end-to-end מול הדפדפן — מצב אמיתי ריק + המלצה מלאה + חריגה ממכסה
+npm run smoke:regression    # מעבר על כל המסכים
+```
+
+`test:spatial`, `test:defects`, `test:reports` ו-`test:allocation` יוצרים נתוני בדיקה זמניים, בודקים מולם, ומנקים אחריהם — בסיס הנתונים נשאר כפי שהיה. `smoke:defects` דורש את משתמשי הבדיקה מ-`npm run seed:demo-roles`.
+
+## טכנולוגיות
+
+Next.js 16 (App Router) · React 19 · Prisma 7 · PostgreSQL + PostGIS (Neon) · MapLibre GL · NextAuth v5 · Tailwind 4 · Playwright.
+
+גיאומטריה מוגדרת `Unsupported()` בסכימה ונגישה דרך SQL גולמי ב-`src/server/geo.service.ts` ו-`src/server/geo/spatialJoin.ts`.

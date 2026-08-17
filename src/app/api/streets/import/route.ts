@@ -91,7 +91,7 @@ export async function POST(req: Request) {
     return row;
   });
 
-  const zones = await prisma.zone.findMany({ where: { active: true } });
+  const zones = await prisma.operationalZone.findMany({ where: { active: true } });
   const zoneByName = new Map(zones.map((z) => [z.name, z.id]));
 
   let created = 0;

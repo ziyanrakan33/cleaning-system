@@ -1,7 +1,11 @@
 import { auth } from "@/lib/auth";
 import { NextResponse } from "next/server";
+import { canSeeNav, isFieldOnlyRole } from "@/lib/permissions";
 
 const PUBLIC_PATHS = ["/login"];
+
+/** Top-level sections whose visibility is role-dependent. */
+const GUARDED_PREFIXES = ["/sources", "/users", "/defects", "/complaints", "/inspections"];
 
 export default auth((req) => {
   const { pathname } = req.nextUrl;
@@ -21,9 +25,17 @@ export default auth((req) => {
     return NextResponse.redirect(loginUrl);
   }
 
-  // Employees are limited to their own daily view; admins/managers can go anywhere.
-  if (user.role === "EMPLOYEE" && !pathname.startsWith("/my-day")) {
+  // Field roles are limited to their own daily view.
+  if (isFieldOnlyRole(user.role) && !pathname.startsWith("/my-day")) {
     return NextResponse.redirect(new URL("/my-day", req.nextUrl.origin));
+  }
+
+  // Sections that not every dashboard role may open. Redirecting rather than
+  // 403ing keeps a mistyped URL from looking like a broken app; the API routes
+  // behind these pages enforce the same rules and do return 403.
+  const guarded = GUARDED_PREFIXES.find((p) => pathname.startsWith(p));
+  if (guarded && !canSeeNav(user.role, guarded)) {
+    return NextResponse.redirect(new URL("/", req.nextUrl.origin));
   }
 
   return NextResponse.next();

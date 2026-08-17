@@ -1,12 +1,18 @@
 import Link from "next/link";
 import { auth, signOut } from "@/lib/auth";
+import { canSeeNav, ROLE_LABELS, type Role } from "@/lib/permissions";
+import { prisma } from "@/lib/prisma";
 
 const NAV_ITEMS = [
   { href: "/", label: "בקרה" },
   { href: "/map", label: "מפת מנהל" },
+  { href: "/sources", label: "מקורות ואימות" },
   { href: "/streets", label: "רחובות ושבילים" },
   { href: "/zones", label: "אזורים" },
   { href: "/resources", label: "משאבים" },
+  { href: "/defects", label: "ליקויים" },
+  { href: "/complaints", label: "תלונות ופניות מוקד" },
+  { href: "/inspections", label: "סיורי פיקוח" },
   { href: "/users", label: "משתמשים" },
   { href: "/plans", label: "תוכניות עבודה" },
   { href: "/plans/weekly", label: "לוח שבועי" },
@@ -16,6 +22,21 @@ const NAV_ITEMS = [
 
 export default async function DashboardLayout({ children }: { children: React.ReactNode }) {
   const session = await auth();
+  const role = session?.user?.role;
+  const navItems = NAV_ITEMS.filter((item) => canSeeNav(role, item.href));
+
+  // Surfaced in the sidebar so unverified data is visible from every screen,
+  // not only when someone thinks to open the sources page.
+  const [openConflicts, unassignedZones, overdueDefects] = await Promise.all([
+    prisma.sourceConflict.count({ where: { status: "OPEN" } }),
+    prisma.operationalZone.count({ where: { active: true, contractAreaId: null } }),
+    canSeeNav(role, "/defects")
+      ? prisma.defect.count({
+          where: { dueAt: { lt: new Date() }, status: { notIn: ["FIXED", "CLOSED", "REJECTED"] } },
+        })
+      : Promise.resolve(0),
+  ]);
+  const pendingCount = openConflicts + unassignedZones;
 
   return (
     <div className="flex min-h-screen">
@@ -25,18 +46,36 @@ export default async function DashboardLayout({ children }: { children: React.Re
           <div className="text-xs text-muted">כפר סבא</div>
         </div>
         <nav className="flex flex-1 flex-col gap-0.5 p-2">
-          {NAV_ITEMS.map((item) => (
+          {navItems.map((item) => (
             <Link
               key={item.href}
               href={item.href}
-              className="rounded-md px-3 py-2 text-sm text-foreground/90 transition hover:bg-accent/10 hover:text-accent"
+              className="flex items-center justify-between rounded-md px-3 py-2 text-sm text-foreground/90 transition hover:bg-accent/10 hover:text-accent"
             >
-              {item.label}
+              <span>{item.label}</span>
+              {item.href === "/sources" && pendingCount > 0 && (
+                <span
+                  className="rounded-full bg-warning/20 px-1.5 py-0.5 text-xs font-semibold text-warning tabular-nums"
+                  title={`${openConflicts} סתירות פתוחות · ${unassignedZones} אזורים ללא שיוך קבלן`}
+                >
+                  {pendingCount}
+                </span>
+              )}
+              {item.href === "/defects" && overdueDefects > 0 && (
+                <span
+                  className="rounded-full bg-danger/20 px-1.5 py-0.5 text-xs font-semibold text-danger tabular-nums"
+                  title={`${overdueDefects} ליקויים באיחור`}
+                >
+                  {overdueDefects}
+                </span>
+              )}
             </Link>
           ))}
         </nav>
         <div className="border-t border-panel-border p-3 text-xs text-muted">
-          <div className="mb-2 truncate">{session?.user?.name} · {session?.user?.role}</div>
+          <div className="mb-2 truncate">
+            {session?.user?.name} · {ROLE_LABELS[role as Role] ?? role}
+          </div>
           <form
             action={async () => {
               "use server";

@@ -51,3 +51,4 @@ next-env.d.ts
 /skills-lock.json
 
 /src/generated/prisma
+dev-server.log

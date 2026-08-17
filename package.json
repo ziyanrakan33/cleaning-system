@@ -6,7 +6,22 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "typecheck": "tsc --noEmit",
+    "seed:tender": "tsx --env-file=.env scripts/seed-tender-data.ts",
+    "seed:zones": "tsx --env-file=.env scripts/seed-operational-zones.ts",
+    "seed:defect-types": "tsx --env-file=.env scripts/seed-defect-types.ts",
+    "seed:demo-roles": "tsx --env-file=.env scripts/seed-demo-roles.ts",
+    "spatial-join": "tsx --env-file=.env scripts/run-spatial-join.ts",
+    "test:spatial": "tsx --env-file=.env scripts/test-spatial-join.ts",
+    "test:defects": "tsx --env-file=.env scripts/test-defects.ts",
+    "test:reports": "tsx --env-file=.env scripts/test-reports.ts",
+    "test:allocation": "tsx --env-file=.env scripts/test-allocation.ts",
+    "smoke:tender": "node scripts/smoke-tender-sources.mjs",
+    "smoke:defects": "node scripts/smoke-defects.mjs",
+    "smoke:reports": "node scripts/smoke-reports.mjs",
+    "smoke:allocation": "node scripts/smoke-allocation.mjs",
+    "smoke:regression": "node scripts/smoke-full-regression.mjs"
   },
   "dependencies": {
     "@neondatabase/serverless": "^1.1.0",

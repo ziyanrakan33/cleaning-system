@@ -18,8 +18,136 @@ datasource db {
 
 enum UserRole {
   ADMIN
+  // MANAGER is the legacy pre-tender role. No rows use it, but several route
+  // handlers still test for it, so it stays as an alias of DEPT_MANAGER.
   MANAGER
   EMPLOYEE
+  CITY_MANAGER
+  DEPT_MANAGER
+  INSPECTOR
+  CONTRACTOR_MANAGER
+  SITE_SUPERVISOR
+  VIEWER
+  FINANCE
+}
+
+/// Lifecycle of a value extracted from a tender document or photographed table.
+/// Nothing below VERIFIED may be presented to the user as established fact.
+enum VerificationStatus {
+  EXTRACTED
+  REQUIRES_REVIEW
+  VERIFIED
+  REJECTED
+  CONFLICTED
+}
+
+enum ConfidenceLevel {
+  HIGH
+  MEDIUM
+  LOW
+}
+
+enum SourceType {
+  TENDER_DOCUMENT
+  BID_TABLE_IMAGE
+  ZONE_MAP_IMAGE
+  GIS_IMPORT
+  OSM_IMPORT
+  MANUAL_ENTRY
+}
+
+enum ShiftType {
+  MORNING
+  AFTERNOON
+  NIGHT
+  REST_DAY
+  FLEXIBLE
+}
+
+enum ResourceCategory {
+  SWEEPER_SMALL
+  SWEEPER_MEDIUM
+  SWEEPER_LARGE
+  TASK_VEHICLE
+  MIUL
+  MANUAL_WORKER
+  WASHER
+  TRIMMER
+  SUPERVISOR
+  OTHER
+}
+
+enum ConflictStatus {
+  OPEN
+  RESOLVED
+  ACCEPTED_BOTH
+}
+
+/// Defect lifecycle. Mirrors the contract: the contractor fixes at his own
+/// expense by the deadline (§821), may appeal the monthly deduction list within
+/// 7 days (§826), and nothing closes without the inspector accepting the proof.
+enum DefectStatus {
+  NEW
+  ASSIGNED
+  IN_PROGRESS
+  AWAITING_PROOF
+  FIXED
+  REJECTED
+  APPEALED
+  CLOSED
+}
+
+enum DefectSeverity {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+enum DefectOrigin {
+  INSPECTION
+  CALL_CENTER
+  MANAGER
+  CONTRACTOR
+  OTHER
+}
+
+/// A deduction is only ever *proposed* by the system. §825 puts the decision
+/// with the מנהל, so it takes an explicit approval before it counts.
+enum DeductionStatus {
+  NONE
+  PROPOSED
+  APPROVED
+  WAIVED
+  APPLIED
+}
+
+enum PhotoKind {
+  BEFORE
+  AFTER
+}
+
+enum ComplaintStatus {
+  NEW
+  ASSIGNED
+  IN_PROGRESS
+  RESOLVED
+  REJECTED
+  CLOSED
+}
+
+enum InspectionStatus {
+  PLANNED
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
+
+/// §561 fixes two daily rounds, at 10:00 and at 12:00.
+enum InspectionRound {
+  MORNING_10
+  MIDDAY_12
+  AD_HOC
 }
 
 enum StreetType {
@@ -108,11 +236,150 @@ model User {
   createdWorkPlans  WorkPlan[]        @relation("WorkPlanCreatedBy")
   workPlanChanges   WorkPlanChange[]  @relation("WorkPlanChangeBy")
   importBatches     ImportBatch[]     @relation("ImportedBy")
+  verifiedEvidence  SourceEvidence[]  @relation("EvidenceVerifiedBy")
+  resolvedConflicts SourceConflict[]  @relation("ConflictResolvedBy")
+  manualOverrides   ManualOverride[]  @relation("OverrideBy")
+  auditLogs         AuditLog[]        @relation("AuditBy")
+
+  reportedDefects     Defect[]      @relation("DefectReportedBy")
+  assignedDefects     Defect[]      @relation("DefectAssignedTo")
+  approvedDeductions  Defect[]      @relation("DeductionApprovedBy")
+  decidedAppeals      Defect[]      @relation("AppealDecidedBy")
+  defectEvents        DefectEvent[] @relation("DefectEventBy")
+  uploadedPhotos      DefectPhoto[] @relation("PhotoUploadedBy")
+  receivedComplaints  Complaint[]   @relation("ComplaintReceivedBy")
+  assignedComplaints  Complaint[]   @relation("ComplaintAssignedTo")
+  inspections         Inspection[]  @relation("InspectionInspector")
+  attendedInspections Inspection[]  @relation("InspectionContractorRep")
 
   @@map("users")
 }
 
-model Zone {
+// ---------- Tender / contract layer ----------
+// A ContractArea is a CONTRACTUAL construct: there are exactly two, one per
+// winning contractor. It is NOT the same thing as an OperationalZone (of which
+// there are ten). The two must never share a table or a column.
+
+model Tender {
+  id           String  @id @default(cuid())
+  name         String
+  number       String?
+  description  String?
+  municipality String  @default("כפר סבא")
+
+  contractMonths Int? @map("contract_months")
+  optionYears    Int? @map("option_years")
+
+  // Tender-stated estimates. They disagree with each other and with the OSM
+  // import; the difference is recorded as a SourceConflict rather than resolved.
+  totalInfrastructureKm Float? @map("total_infrastructure_km")
+  jurisdictionKm        Float? @map("jurisdiction_km")
+
+  // The municipality may shrink the work by up to 25% or grow it by up to 50%.
+  maxDecreasePercent Int? @map("max_decrease_percent")
+  maxIncreasePercent Int? @map("max_increase_percent")
+
+  sourceFile String? @map("source_file")
+  notes      String?
+
+  contractAreas ContractArea[]
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("tenders")
+}
+
+model Contractor {
+  id                 String  @id @default(cuid())
+  name               String  @unique
+  registrationNumber String? @map("registration_number")
+  contactName        String? @map("contact_name")
+  contactPhone       String? @map("contact_phone")
+  contactEmail       String? @map("contact_email")
+  active             Boolean @default(true)
+  notes              String?
+
+  contractAreas ContractArea[]
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("contractors")
+}
+
+model ContractArea {
+  id         String @id @default(cuid())
+  areaNumber Int    @unique @map("area_number") // 1 or 2
+  name       String
+
+  tenderId String? @map("tender_id")
+  tender   Tender? @relation(fields: [tenderId], references: [id], onDelete: SetNull)
+
+  contractorId String?     @map("contractor_id")
+  contractor   Contractor? @relation(fields: [contractorId], references: [id], onDelete: SetNull)
+
+  verificationStatus VerificationStatus @default(EXTRACTED) @map("verification_status")
+  confidence         ConfidenceLevel    @default(MEDIUM)
+
+  dailyTotal   Decimal? @map("daily_total") @db.Decimal(14, 2)
+  monthlyTotal Decimal? @map("monthly_total") @db.Decimal(14, 2)
+  annualTotal  Decimal? @map("annual_total") @db.Decimal(14, 2)
+
+  notes String?
+
+  quotas           ContractAreaResourceQuota[]
+  operationalZones OperationalZone[]
+  defects          Defect[]
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("contract_areas")
+}
+
+/// One row of a winning contractor's priced resource table, for one contract area.
+model ContractAreaResourceQuota {
+  id String @id @default(cuid())
+
+  contractAreaId String       @map("contract_area_id")
+  contractArea   ContractArea @relation(fields: [contractAreaId], references: [id], onDelete: Cascade)
+
+  resourceTypeId String       @map("resource_type_id")
+  resourceType   ResourceType @relation(fields: [resourceTypeId], references: [id])
+
+  /// מס"ד as printed in THIS area's table — the two areas number their rows differently.
+  lineNumber Int   @map("line_number")
+  quantity   Int
+  shiftHours Float @map("shift_hours")
+
+  maxUnitPrice Decimal? @map("max_unit_price") @db.Decimal(12, 2)
+  unitPrice    Decimal? @map("unit_price") @db.Decimal(12, 2)
+  dailyTotal   Decimal? @map("daily_total") @db.Decimal(14, 2)
+
+  /// City-wide quantity from the tender's own table 17. Kept alongside the
+  /// per-area figure rather than replacing it — the two often disagree.
+  tenderQuantity Int? @map("tender_quantity")
+
+  verificationStatus VerificationStatus @default(EXTRACTED) @map("verification_status")
+  confidence         ConfidenceLevel    @default(MEDIUM)
+  notes              String?
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@unique([contractAreaId, lineNumber])
+  @@index([resourceTypeId])
+  @@map("contract_area_resource_quotas")
+}
+
+// ---------- Operational geography ----------
+// An OperationalZone is one of the ten cleaning zones drawn on the city map.
+// Its link to a ContractArea is deliberately nullable: the tender draft leaves
+// the "קבלן מס' 1:" / "קבלן מס' 2:" zone lists blank, so the mapping cannot be
+// derived from any source and must be set by a manager.
+
+model OperationalZone {
   id          String  @id @default(cuid())
   name        String
   code        String  @unique
@@ -120,11 +387,30 @@ model Zone {
   description String?
   active      Boolean @default(true)
 
+  /// 1..10 as printed on the zone map. Null for legacy/ad-hoc zones.
+  zoneNumber Int? @unique @map("zone_number")
+
+  contractAreaId String?       @map("contract_area_id")
+  contractArea   ContractArea? @relation(fields: [contractAreaId], references: [id], onDelete: SetNull)
+
+  /// Whether the zone→contract-area link has been confirmed by a human.
+  contractAreaStatus VerificationStatus @default(REQUIRES_REVIEW) @map("contract_area_status")
+
+  /// Whether the zone's boundary geometry has been confirmed.
+  verificationStatus VerificationStatus @default(REQUIRES_REVIEW) @map("verification_status")
+  confidence         ConfidenceLevel    @default(LOW)
+  manuallyOverridden Boolean            @default(false) @map("manually_overridden")
+  notes              String?
+
   // geometry(Polygon, 4326) — accessed via geo.service.ts raw SQL
   geometry Unsupported("geometry(Polygon, 4326)")?
 
   streets           Street[]
-  allowedByResource Resource[] @relation("ResourceAllowedZones")
+  segments          StreetSegment[]
+  allowedByResource Resource[]      @relation("ResourceAllowedZones")
+  defects           Defect[]
+  complaints        Complaint[]
+  inspections       Inspection[]
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
@@ -133,12 +419,12 @@ model Zone {
 }
 
 model Street {
-  id                    String        @id @default(cuid())
+  id                    String           @id @default(cuid())
   name                  String
-  type                  StreetType    @default(STREET)
-  zoneId                String?       @map("zone_id")
-  zone                  Zone?         @relation(fields: [zoneId], references: [id], onDelete: SetNull)
-  lengthM               Float?        @map("length_m")
+  type                  StreetType       @default(STREET)
+  zoneId                String?          @map("zone_id")
+  zone                  OperationalZone? @relation(fields: [zoneId], references: [id], onDelete: SetNull)
+  lengthM               Float?           @map("length_m")
   startPointLat         Float?        @map("start_point_lat")
   startPointLon         Float?        @map("start_point_lon")
   endPointLat            Float?        @map("end_point_lat")
@@ -157,10 +443,17 @@ model Street {
   source                DataSource    @default(MANUAL)
   osmId                 String?       @unique @map("osm_id")
 
+  /// True when the street's geometry falls inside more than one zone, so it is
+  /// represented by several StreetSegments rather than a single zone link.
+  crossesZones          Boolean       @default(false) @map("crosses_zones")
+
   allowedResourceTypes  ResourceType[]        @relation("StreetAllowedResourceTypes")
   allowedByResource     Resource[]            @relation("ResourceAllowedStreets")
   workPlanTasks         WorkPlanTask[]
   cleaningLogs          StreetCleaningLog[]
+  segments              StreetSegment[]
+  defects               Defect[]
+  complaints            Complaint[]
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
@@ -169,13 +462,70 @@ model Street {
   @@map("streets")
 }
 
+/// The part of one street that falls inside one zone. Produced by the spatial
+/// join (ST_Intersection); a street crossing a boundary yields several rows so
+/// that its length is attributed to the right zone instead of being assigned
+/// wholesale by its midpoint.
+model StreetSegment {
+  id String @id @default(cuid())
+
+  streetId String @map("street_id")
+  street   Street @relation(fields: [streetId], references: [id], onDelete: Cascade)
+
+  zoneId String?          @map("zone_id")
+  zone   OperationalZone? @relation(fields: [zoneId], references: [id], onDelete: SetNull)
+
+  segmentIndex Int    @map("segment_index")
+  lengthM      Float? @map("length_m")
+
+  // geometry(LineString, 4326) — accessed via geo.service.ts raw SQL
+  geometry Unsupported("geometry(LineString, 4326)")?
+
+  verificationStatus VerificationStatus @default(EXTRACTED) @map("verification_status")
+  confidence         ConfidenceLevel    @default(MEDIUM)
+
+  /// Set when a manager corrects the zone by hand. The spatial join must never
+  /// overwrite a row with this flag on a later run.
+  manuallyOverridden Boolean @default(false) @map("manually_overridden")
+  crossesZones       Boolean @default(false) @map("crosses_zones")
+  notes              String?
+
+  defects Defect[]
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@unique([streetId, segmentIndex])
+  @@index([zoneId])
+  @@index([verificationStatus])
+  @@map("street_segments")
+}
+
 model ResourceType {
   id   String @id @default(cuid())
   name String @unique
   code String @unique
 
-  resources     Resource[]
-  allowedOnStreets Street[] @relation("StreetAllowedResourceTypes")
+  /// Catalog attributes, so a manager can add a resource type without a code change.
+  category            ResourceCategory @default(OTHER)
+  shiftType           ShiftType        @default(FLEXIBLE) @map("shift_type")
+  standardHours       Float?           @map("standard_hours")
+  capacityLiters      Int?             @map("capacity_liters")
+  requiresDriver      Boolean          @default(false) @map("requires_driver")
+  requiresExtraWorker Boolean          @default(false) @map("requires_extra_worker")
+  requiresGps         Boolean          @default(false) @map("requires_gps")
+  suitableForRoad     Boolean          @default(true) @map("suitable_for_road")
+  suitableForSidewalk Boolean          @default(false) @map("suitable_for_sidewalk")
+  suitableForPath     Boolean          @default(false) @map("suitable_for_path")
+  availableAtNight    Boolean          @default(false) @map("available_at_night")
+  availableOnRestDay  Boolean          @default(false) @map("available_on_rest_day")
+  description         String?
+  active              Boolean          @default(true)
+  sortOrder           Int              @default(0) @map("sort_order")
+
+  resources        Resource[]
+  allowedOnStreets Street[]                    @relation("StreetAllowedResourceTypes")
+  quotas           ContractAreaResourceQuota[]
 
   @@map("resource_types")
 }
@@ -190,8 +540,8 @@ model Resource {
   assignedEmployee   User?          @relation("ResourceEmployee", fields: [assignedEmployeeId], references: [id], onDelete: SetNull)
   status             ResourceStatus @default(ACTIVE)
 
-  allowedZones   Zone[]   @relation("ResourceAllowedZones")
-  allowedStreets Street[] @relation("ResourceAllowedStreets")
+  allowedZones   OperationalZone[] @relation("ResourceAllowedZones")
+  allowedStreets Street[]          @relation("ResourceAllowedStreets")
 
   workHoursStart String? @map("work_hours_start") // "07:00"
   workHoursEnd   String? @map("work_hours_end")   // "14:30"
@@ -343,4 +693,345 @@ model ImportBatch {
   errorLog     Json?        @map("error_log")
 
   @@map("import_batches")
+}
+
+// ---------- Provenance, conflicts and audit ----------
+
+/// Where one extracted value came from. Attached polymorphically so any entity
+/// can carry provenance without a foreign key per table.
+model SourceEvidence {
+  id String @id @default(cuid())
+
+  entityType String  @map("entity_type") // "ContractArea", "OperationalZone", ...
+  entityId   String  @map("entity_id")
+  fieldName  String? @map("field_name")
+
+  sourceFile        String     @map("source_file")
+  sourceType        SourceType @map("source_type")
+  sourcePage        Int?       @map("source_page")
+  sourceSection     String?    @map("source_section")
+  sourceImageRegion String?    @map("source_image_region")
+
+  extractedValue String? @map("extracted_value")
+
+  confidence         ConfidenceLevel    @default(MEDIUM)
+  verificationStatus VerificationStatus @default(EXTRACTED) @map("verification_status")
+
+  verifiedById String?   @map("verified_by")
+  verifiedBy   User?     @relation("EvidenceVerifiedBy", fields: [verifiedById], references: [id], onDelete: SetNull)
+  verifiedAt   DateTime? @map("verified_at")
+
+  notes String?
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@index([entityType, entityId])
+  @@index([verificationStatus])
+  @@map("source_evidence")
+}
+
+/// Two or more sources that disagree. Both values are kept; a manager decides.
+/// Never silently resolved by picking a number.
+model SourceConflict {
+  id    String @id @default(cuid())
+  topic String
+
+  entityType String? @map("entity_type")
+  entityId   String? @map("entity_id")
+  fieldName  String? @map("field_name")
+
+  valueA  String @map("value_a")
+  sourceA String @map("source_a")
+  valueB  String @map("value_b")
+  sourceB String @map("source_b")
+  valueC  String? @map("value_c")
+  sourceC String? @map("source_c")
+
+  status ConflictStatus @default(OPEN)
+
+  resolvedValue String?   @map("resolved_value")
+  resolvedById  String?   @map("resolved_by")
+  resolvedBy    User?     @relation("ConflictResolvedBy", fields: [resolvedById], references: [id], onDelete: SetNull)
+  resolvedAt    DateTime? @map("resolved_at")
+
+  notes String?
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@index([status])
+  @@map("source_conflicts")
+}
+
+/// A human correction that automated recomputation must respect.
+model ManualOverride {
+  id String @id @default(cuid())
+
+  entityType String @map("entity_type")
+  entityId   String @map("entity_id")
+  fieldName  String @map("field_name")
+
+  previousValue String? @map("previous_value")
+  newValue      String? @map("new_value")
+  reason        String?
+
+  overriddenById String   @map("overridden_by")
+  overriddenBy   User     @relation("OverrideBy", fields: [overriddenById], references: [id])
+  overriddenAt   DateTime @default(now()) @map("overridden_at")
+
+  @@index([entityType, entityId])
+  @@map("manual_overrides")
+}
+
+// ---------- Defects, complaints and inspection ----------
+
+/// One row of the tender's agreed-deduction table (טבלה 15).
+/// `deductionAmount` is what the contract says a single occurrence costs; the
+/// wording of what counts as "one occurrence" differs per row and is preserved
+/// verbatim in `unitBasis` rather than being normalised away.
+model DefectType {
+  id   String @id @default(cuid())
+  code String @unique
+  name String
+
+  deductionAmount Decimal @map("deduction_amount") @db.Decimal(12, 2)
+  unitBasis       String  @map("unit_basis")
+  category        String
+
+  /// Default hours the contractor gets to fix this, used to seed Defect.dueAt.
+  defaultFixHours Int? @map("default_fix_hours")
+
+  sourceSection String? @map("source_section")
+  active        Boolean @default(true)
+  sortOrder     Int     @default(0)
+  notes         String?
+
+  defects Defect[]
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("defect_types")
+}
+
+model Defect {
+  id       String @id @default(cuid())
+  /// Short human reference shown in the field, e.g. "LK-2026-0042".
+  reference String @unique
+
+  defectTypeId String?     @map("defect_type_id")
+  defectType   DefectType? @relation(fields: [defectTypeId], references: [id], onDelete: SetNull)
+
+  zoneId    String?          @map("zone_id")
+  zone      OperationalZone? @relation(fields: [zoneId], references: [id], onDelete: SetNull)
+  streetId  String?          @map("street_id")
+  street    Street?          @relation(fields: [streetId], references: [id], onDelete: SetNull)
+  segmentId String?          @map("segment_id")
+  segment   StreetSegment?   @relation(fields: [segmentId], references: [id], onDelete: SetNull)
+
+  /// Denormalised so a defect keeps pointing at the responsible contractor even
+  /// if the zone is later reassigned to the other contract area.
+  contractAreaId String?       @map("contract_area_id")
+  contractArea   ContractArea? @relation(fields: [contractAreaId], references: [id], onDelete: SetNull)
+
+  /// Point dropped on the map. Kept as plain lat/lon: a defect is a single
+  /// pin, so it needs no PostGIS geometry or spatial index.
+  lat Float?
+  lon Float?
+
+  title       String
+  description String?
+  severity    DefectSeverity @default(MEDIUM)
+  origin      DefectOrigin   @default(INSPECTION)
+  status      DefectStatus   @default(NEW)
+
+  reportedById String @map("reported_by")
+  reportedBy   User   @relation("DefectReportedBy", fields: [reportedById], references: [id])
+  assignedToId String? @map("assigned_to")
+  assignedTo   User?  @relation("DefectAssignedTo", fields: [assignedToId], references: [id], onDelete: SetNull)
+
+  reportedAt DateTime  @default(now()) @map("reported_at")
+  dueAt      DateTime? @map("due_at")
+  fixedAt    DateTime? @map("fixed_at")
+  closedAt   DateTime? @map("closed_at")
+
+  /// Why the work was not done, when the contractor rejects or cannot comply.
+  notDoneReason String? @map("not_done_reason")
+  inspectorNotes String? @map("inspector_notes")
+
+  // ---- deduction (§822, §825) ----
+  deductionStatus DeductionStatus @default(NONE) @map("deduction_status")
+  /// Proposed amount, copied from the defect type at creation so a later change
+  /// to the catalog cannot silently restate a historical charge.
+  deductionAmount Decimal? @map("deduction_amount") @db.Decimal(12, 2)
+  /// §822: where the municipality carried out the fix itself, it may add 15%.
+  deductionSurchargePercent Int? @map("deduction_surcharge_percent")
+  deductionReason           String? @map("deduction_reason")
+  deductionApprovedById     String? @map("deduction_approved_by")
+  deductionApprovedBy       User?   @relation("DeductionApprovedBy", fields: [deductionApprovedById], references: [id], onDelete: SetNull)
+  deductionApprovedAt       DateTime? @map("deduction_approved_at")
+
+  // ---- appeal (§826: 7 days to appeal, 14 days to decide) ----
+  appealText       String?   @map("appeal_text")
+  appealedAt       DateTime? @map("appealed_at")
+  appealDueAt      DateTime? @map("appeal_due_at")
+  appealDecision   String?   @map("appeal_decision")
+  appealDecidedAt  DateTime? @map("appeal_decided_at")
+  appealDecidedById String?  @map("appeal_decided_by")
+  appealDecidedBy  User?     @relation("AppealDecidedBy", fields: [appealDecidedById], references: [id], onDelete: SetNull)
+
+  inspectionId String?     @map("inspection_id")
+  inspection   Inspection? @relation(fields: [inspectionId], references: [id], onDelete: SetNull)
+  complaintId  String?     @map("complaint_id")
+  complaint    Complaint?  @relation(fields: [complaintId], references: [id], onDelete: SetNull)
+
+  photos DefectPhoto[]
+  events DefectEvent[]
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@index([status])
+  @@index([zoneId])
+  @@index([contractAreaId])
+  @@index([dueAt])
+  @@map("defects")
+}
+
+/// Before/after evidence. Bytes live in the database and are served through an
+/// authenticated route rather than from /public, so a photo of a site is not
+/// readable by anyone who guesses the URL.
+model DefectPhoto {
+  id       String @id @default(cuid())
+  defectId String @map("defect_id")
+  defect   Defect @relation(fields: [defectId], references: [id], onDelete: Cascade)
+
+  kind     PhotoKind
+  mimeType String    @map("mime_type")
+  sizeBytes Int      @map("size_bytes")
+  data     Bytes
+  caption  String?
+
+  uploadedById String   @map("uploaded_by")
+  uploadedBy   User     @relation("PhotoUploadedBy", fields: [uploadedById], references: [id])
+  uploadedAt   DateTime @default(now()) @map("uploaded_at")
+
+  @@index([defectId])
+  @@map("defect_photos")
+}
+
+/// Append-only history. Nothing here is ever edited or deleted — the contract
+/// makes the defect trail evidence in a payment dispute.
+model DefectEvent {
+  id       String @id @default(cuid())
+  defectId String @map("defect_id")
+  defect   Defect @relation(fields: [defectId], references: [id], onDelete: Cascade)
+
+  action     String
+  fromStatus DefectStatus? @map("from_status")
+  toStatus   DefectStatus? @map("to_status")
+  note       String?
+
+  userId String? @map("user_id")
+  user   User?   @relation("DefectEventBy", fields: [userId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([defectId, createdAt])
+  @@map("defect_events")
+}
+
+/// §640: every resident complaint the contractor must investigate and handle.
+model Complaint {
+  id        String @id @default(cuid())
+  reference String @unique
+
+  /// Kept minimal on purpose — a name and a callback number are all the
+  /// operation needs, so no further personal data is stored.
+  reporterName  String? @map("reporter_name")
+  reporterPhone String? @map("reporter_phone")
+
+  zoneId   String?          @map("zone_id")
+  zone     OperationalZone? @relation(fields: [zoneId], references: [id], onDelete: SetNull)
+  streetId String?          @map("street_id")
+  street   Street?          @relation(fields: [streetId], references: [id], onDelete: SetNull)
+  lat      Float?
+  lon      Float?
+
+  subject     String
+  description String?
+  status      ComplaintStatus @default(NEW)
+
+  receivedAt DateTime  @default(now()) @map("received_at")
+  dueAt      DateTime? @map("due_at")
+  resolvedAt DateTime? @map("resolved_at")
+  resolution String?
+
+  receivedById String  @map("received_by")
+  receivedBy   User    @relation("ComplaintReceivedBy", fields: [receivedById], references: [id])
+  assignedToId String? @map("assigned_to")
+  assignedTo   User?   @relation("ComplaintAssignedTo", fields: [assignedToId], references: [id], onDelete: SetNull)
+
+  defects Defect[]
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@index([status])
+  @@index([zoneId])
+  @@map("complaints")
+}
+
+/// §561: a joint field tour, municipal inspector plus the contractor's site
+/// supervisor, twice a day at 10:00 and 12:00.
+model Inspection {
+  id   String   @id @default(cuid())
+  date DateTime @db.Date
+  round InspectionRound @default(MORNING_10)
+
+  zoneId String?          @map("zone_id")
+  zone   OperationalZone? @relation(fields: [zoneId], references: [id], onDelete: SetNull)
+
+  inspectorId String @map("inspector_id")
+  inspector   User   @relation("InspectionInspector", fields: [inspectorId], references: [id])
+  /// The contractor's site supervisor who attended, per §561.
+  contractorRepId String? @map("contractor_rep")
+  contractorRep   User?   @relation("InspectionContractorRep", fields: [contractorRepId], references: [id], onDelete: SetNull)
+
+  status      InspectionStatus @default(PLANNED)
+  meetingPoint String?         @map("meeting_point")
+  startedAt   DateTime?        @map("started_at")
+  completedAt DateTime?        @map("completed_at")
+  notes       String?
+
+  defects Defect[]
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@unique([date, round, zoneId])
+  @@index([date])
+  @@map("inspections")
+}
+
+model AuditLog {
+  id String @id @default(cuid())
+
+  entityType String  @map("entity_type")
+  entityId   String? @map("entity_id")
+  action     String
+
+  userId String? @map("user_id")
+  user   User?   @relation("AuditBy", fields: [userId], references: [id], onDelete: SetNull)
+
+  before      Json?
+  after       Json?
+  description String?
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([entityType, entityId])
+  @@index([createdAt])
+  @@map("audit_logs")
 }

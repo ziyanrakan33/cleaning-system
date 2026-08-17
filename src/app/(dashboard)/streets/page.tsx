@@ -26,7 +26,7 @@ export default async function StreetsPage() {
       orderBy: { name: "asc" },
       include: { zone: { select: { id: true, name: true, color: true } } },
     }),
-    prisma.zone.findMany({ where: { active: true }, orderBy: { name: "asc" } }),
+    prisma.operationalZone.findMany({ where: { active: true }, orderBy: { name: "asc" } }),
   ]);
 
   const rows = streets.map((s) => ({

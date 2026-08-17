@@ -22,7 +22,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
   }
 
-  const zone = await prisma.zone.update({ where: { id }, data: parsed.data });
+  const zone = await prisma.operationalZone.update({ where: { id }, data: parsed.data });
   return NextResponse.json(zone);
 }
 
@@ -36,7 +36,7 @@ export async function DELETE(_req: Request, { params }: { params: Promise<{ id: 
   // Soft delete: keep history, unassign streets.
   await prisma.$transaction([
     prisma.street.updateMany({ where: { zoneId: id }, data: { zoneId: null } }),
-    prisma.zone.update({ where: { id }, data: { active: false } }),
+    prisma.operationalZone.update({ where: { id }, data: { active: false } }),
   ]);
   return NextResponse.json({ ok: true });
 }
