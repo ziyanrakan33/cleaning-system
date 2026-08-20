@@ -1,53 +1,126 @@
 @import "tailwindcss";
 
 :root {
-  --background: #f8fafc;
-  --foreground: #0f172a;
-  --panel: #ffffff;
-  --panel-border: #e2e8f0;
-  --muted: #64748b;
-  --accent: #2563eb;
-  --accent-foreground: #ffffff;
-  --success: #16a34a;
-  --warning: #d97706;
-  --danger: #dc2626;
-  --critical: #b91c1c;
+  color-scheme: dark;
+
+  --background: #07111F;
+  --surface: #0F1B2D;
+  --surface-elevated: #16253B;
+  --input-background: #111D30;
+  --popover-background: #111827;
+  --foreground: #F8FAFC;
+  --secondary-foreground: #CBD5E1;
+  --muted-foreground: #A8B4C5;
+  --border: #334155;
+
+  --primary: #3B82F6;
+  --primary-hover: #2563EB;
+  --selected: #1D4ED8;
+  --focus-ring: #60A5FA;
+
+  --danger: #F87171;
+  --success: #4ADE80;
+  --warning: #FBBF24;
+
+  --panel: #0F1B2D;
+  --panel-border: #334155;
+  --muted: #A8B4C5;
+  --accent: #3B82F6;
+  --accent-foreground: #F8FAFC;
+  --critical: #F87171;
 }
 
 @theme inline {
   --color-background: var(--background);
+  --color-surface: var(--surface);
+  --color-surface-elevated: var(--surface-elevated);
+  --color-input: var(--input-background);
+  --color-popover: var(--popover-background);
   --color-foreground: var(--foreground);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-border: var(--border);
+
+  --color-primary: var(--primary);
+  --color-primary-hover: var(--primary-hover);
+  --color-selected: var(--selected);
+  --color-focus-ring: var(--focus-ring);
+
+  --color-danger: var(--danger);
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+
   --color-panel: var(--panel);
   --color-panel-border: var(--panel-border);
   --color-muted: var(--muted);
   --color-accent: var(--accent);
   --color-accent-foreground: var(--accent-foreground);
-  --color-success: var(--success);
-  --color-warning: var(--warning);
-  --color-danger: var(--danger);
   --color-critical: var(--critical);
+
   --font-sans: var(--font-heebo);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #020617;
-    --foreground: #e2e8f0;
-    --panel: #0f172a;
-    --panel-border: #1e293b;
-    --muted: #94a3b8;
-    --accent: #3b82f6;
-    --accent-foreground: #f8fafc;
-    --success: #22c55e;
-    --warning: #f59e0b;
-    --danger: #ef4444;
-    --critical: #f87171;
-  }
+html,
+body {
+  color-scheme: dark;
+  background-color: var(--background);
+  color: var(--foreground);
 }
 
-body {
-  background: var(--background);
+select,
+input,
+textarea,
+button {
+  color-scheme: dark;
+}
+
+select {
+  background-color: #111D30 !important;
+  color: #F8FAFC !important;
+  border-color: #334155;
+}
+
+select option,
+optgroup {
+  background-color: #111827 !important;
+  color: #F8FAFC !important;
+  padding: 8px 12px;
+}
+
+select option:hover,
+select option:focus,
+select option:active {
+  background-color: #2563EB !important;
+  color: #FFFFFF !important;
+}
+
+select option:checked,
+select option[selected] {
+  background-color: #1D4ED8 !important;
+  color: #FFFFFF !important;
+}
+
+select option:disabled {
+  background-color: #111827 !important;
+  color: #64748B !important;
+}
+
+input,
+textarea {
+  background-color: var(--input-background);
   color: var(--foreground);
+  border-color: var(--border);
+}
+
+input::placeholder,
+textarea::placeholder {
+  color: #A8B4C5;
+  opacity: 0.85;
+}
+
+:focus-visible {
+  outline: 2px solid var(--focus-ring) !important;
+  outline-offset: 2px !important;
 }
 
 ::-webkit-scrollbar {
@@ -55,17 +128,20 @@ body {
   height: 10px;
 }
 ::-webkit-scrollbar-track {
-  background: transparent;
+  background: var(--background);
 }
 ::-webkit-scrollbar-thumb {
-  background: var(--panel-border);
+  background: var(--border);
   border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #475569;
 }
 
 @media print {
   body {
-    background: #ffffff;
-    color: #000000;
+    background: #ffffff !important;
+    color: #000000 !important;
   }
   .no-print {
     display: none !important;

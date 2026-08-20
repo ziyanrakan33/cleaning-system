@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { PageHeader } from "@/components/page-header";
 import { getDashboardStats } from "@/server/dashboard";
 import { getOrganizationSettings } from "@/server/settings/service";
@@ -186,9 +187,9 @@ export default async function DashboardPage() {
               </span>
             ))}
           </div>
-          <a href="/plans" className="mt-2 inline-block text-xs text-accent hover:underline">
+          <Link href="/plans" className="mt-2 inline-block text-xs text-accent hover:underline">
             עבור לתוכניות עבודה ←
-          </a>
+          </Link>
         </div>
       )}
 

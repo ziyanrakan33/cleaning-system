@@ -47,13 +47,21 @@ export async function setStreetGeometry(streetId: string, coords: LonLat[], clie
  * so the caller can warn the manager instead of silently accepting a shape
  * that isn't quite what they drew.
  */
-export async function setZoneGeometry(zoneId: string, ring: LonLat[]): Promise<{ repaired: boolean }> {
+export async function setZoneGeometry(
+  zoneId: string,
+  ring: LonLat[],
+  options?: { allowRepair?: boolean }
+): Promise<{ repaired: boolean }> {
   if (ring.length < 4) throw new Error("A polygon ring needs at least 4 points (closed)");
   const wkt = `POLYGON((${ring.map(([lon, lat]) => `${lon} ${lat}`).join(", ")}))`;
 
   const [{ wasValid }] = await prisma.$queryRaw<{ wasValid: boolean }[]>`
     SELECT ST_IsValid(ST_SetSRID(ST_GeomFromText(${wkt}), 4326)) as "wasValid"
   `;
+
+  if (!wasValid && !options?.allowRepair) {
+    throw new Error("הגבול שצוין אינו תקין גיאומטרית (מכיל הצטלבות עצמית)");
+  }
 
   await prisma.$executeRaw`
     UPDATE zones

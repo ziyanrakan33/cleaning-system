@@ -76,7 +76,7 @@ export function StreetAddButton({ zones }: { zones: Zone[] }) {
       </button>
 
       {open && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={() => setOpen(false)}>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs" onClick={() => setOpen(false)}>
           <form onSubmit={submit} className="w-[420px] rounded-xl border border-panel-border bg-panel p-5 shadow-xl" onClick={(e) => e.stopPropagation()}>
             <div className="mb-3 flex items-center justify-between">
               <div className="font-semibold">הוספת רחוב/שביל</div>

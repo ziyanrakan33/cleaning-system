@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { RouteMap, type RouteStop } from "@/components/map/route-map";
 import { PlanEditorBoard } from "./plan-editor-board";
 
@@ -217,9 +218,9 @@ export function PlanDetail({ workPlanId }: { workPlanId: string }) {
               בטל תוכנית
             </button>
           )}
-          <a href="/plans/history" className="text-xs text-accent hover:underline">
+          <Link href="/plans/history" className="text-xs text-accent hover:underline">
             היסטוריה
-          </a>
+          </Link>
         </div>
       </div>
       {recomputeMsg && <div className="border-b border-panel-border px-4 py-2 text-xs text-muted">{recomputeMsg}</div>}

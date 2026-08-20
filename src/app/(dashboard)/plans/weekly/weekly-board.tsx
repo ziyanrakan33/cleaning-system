@@ -28,10 +28,15 @@ export function WeeklyBoard() {
   const [days, setDays] = useState<DayResult[] | null>(null);
 
   useEffect(() => {
-    setDays(null);
+    let ignore = false;
     fetch(`/api/plans/week?start=${toDateStr(weekStart)}`)
       .then((r) => r.json())
-      .then(setDays);
+      .then((data) => {
+        if (!ignore) setDays(data);
+      });
+    return () => {
+      ignore = true;
+    };
   }, [weekStart]);
 
   function shiftWeek(delta: number) {

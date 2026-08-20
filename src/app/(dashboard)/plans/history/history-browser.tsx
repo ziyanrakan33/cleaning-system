@@ -20,10 +20,15 @@ export function HistoryBrowser({ initialDate }: { initialDate: string }) {
   const [versions, setVersions] = useState<Version[] | null>(null);
 
   useEffect(() => {
-    setVersions(null);
+    let ignore = false;
     fetch(`/api/plans/history?date=${date}`)
       .then((r) => r.json())
-      .then(setVersions);
+      .then((data) => {
+        if (!ignore) setVersions(data);
+      });
+    return () => {
+      ignore = true;
+    };
   }, [date]);
 
   return (

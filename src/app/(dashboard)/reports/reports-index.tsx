@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 
 type Option = { id: string; label?: string; name?: string };
 
@@ -143,9 +144,9 @@ export function ReportsIndex({
         <h2 className="mb-3 text-sm font-semibold text-muted">היסטוריה</h2>
         <div className="grid gap-4 lg:grid-cols-2">
           <ReportCard title="היסטוריית גרסאות" description="כל גרסאות התוכנית, כולל שינויים">
-            <a href="/plans/history" className={printLinkCls}>
+            <Link href="/plans/history" className={printLinkCls}>
               עבור להיסטוריה ←
-            </a>
+            </Link>
           </ReportCard>
         </div>
       </section>
@@ -192,9 +193,9 @@ function UnscheduledCard() {
 function WeeklyBoardCard() {
   return (
     <ReportCard title="תוכנית שבועית" description="תמונת מצב לכל השבוע">
-      <a href="/plans/weekly" className={printLinkCls}>
+      <Link href="/plans/weekly" className={printLinkCls}>
         עבור ללוח השבועי ←
-      </a>
+      </Link>
     </ReportCard>
   );
 }

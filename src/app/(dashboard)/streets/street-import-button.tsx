@@ -80,7 +80,7 @@ export function StreetImportButton() {
 
       {open && (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs"
           onClick={() => {
             setOpen(false);
             reset();
@@ -103,7 +103,7 @@ export function StreetImportButton() {
               </button>
             </div>
 
-            <a href="/api/streets/import/template" className="mb-3 block text-sm text-accent hover:underline">
+            <a href="/api/streets/import/template" download className="mb-3 block text-sm text-accent hover:underline">
               הורדת קובץ תבנית לדוגמה ←
             </a>
 

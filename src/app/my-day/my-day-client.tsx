@@ -278,7 +278,7 @@ function FieldReportSheet({
   }
 
   return (
-    <div className="fixed inset-0 z-30 flex items-end bg-black/40" onClick={onClose}>
+    <div className="fixed inset-0 z-30 flex items-end bg-black/60 backdrop-blur-xs" onClick={onClose}>
       <div
         className="max-h-[85vh] w-full overflow-y-auto rounded-t-2xl bg-panel p-4"
         onClick={(e) => e.stopPropagation()}
@@ -473,10 +473,13 @@ export function MyDayClient() {
     // session that closed while still offline) before the first load, then
     // keeps retrying on reconnect and periodically in case `online` doesn't
     // fire reliably on the device.
-    syncNow();
+    const timer = setTimeout(() => {
+      syncNow();
+    }, 0);
     window.addEventListener("online", syncNow);
     const interval = setInterval(syncNow, 30000);
     return () => {
+      clearTimeout(timer);
       window.removeEventListener("online", syncNow);
       clearInterval(interval);
     };

@@ -30,7 +30,7 @@ export function sequenceRoute(streets: DueStreet[]): SequencedStop[] {
   // --- Nearest-neighbor construction ---
   const remaining = new Set(streets.map((_, i) => i));
   const order: number[] = [];
-  let current = 0;
+  const current = 0;
   order.push(current);
   remaining.delete(current);
   let currentPos = endpoint(streets[current], "end");
