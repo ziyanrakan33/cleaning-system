@@ -1,162 +1,137 @@
 import { NextResponse } from "next/server";
-import * as XLSX from "xlsx";
+import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { auth } from "@/lib/auth";
+import { can } from "@/lib/permissions";
 import { setStreetGeometry } from "@/server/geo.service";
+import { buildExistingStreetIndex, FREQUENCY_MAP, normalizeStreetName, PRIORITY_MAP, TYPE_MAP, type ImportRow } from "@/server/streets/importParsing";
+import type { Prisma } from "@/generated/prisma/client";
 
-const TYPE_MAP: Record<string, string> = {
-  "רחוב": "STREET",
-  "שביל": "PATH",
-  "מדרחוב": "PEDESTRIAN_MALL",
-  "שטח ציבורי": "PUBLIC_AREA",
-  "אחר": "OTHER",
-};
-const PRIORITY_MAP: Record<string, string> = {
-  "קריטי": "CRITICAL",
-  "גבוה": "HIGH",
-  "רגיל": "NORMAL",
-  "נמוך": "LOW",
-};
-const FREQUENCY_MAP: Record<string, string> = {
-  "כל יום": "DAILY",
-  "פעם בשבוע": "WEEKLY",
-  "לפי צורך": "AS_NEEDED",
-};
+const rowSchema = z.object({
+  rowNum: z.number(),
+  name: z.string().optional(),
+  type: z.string().optional(),
+  zone: z.string().optional(),
+  priority: z.string().optional(),
+  frequency: z.string().optional(),
+  lengthM: z.number().optional(),
+  cleanMinutes: z.number().optional(),
+  notes: z.string().optional(),
+  startLat: z.number().optional(),
+  startLon: z.number().optional(),
+  endLat: z.number().optional(),
+  endLon: z.number().optional(),
+});
 
-type ImportRow = {
-  name?: string;
-  type?: string;
-  zone?: string;
-  priority?: string;
-  frequency?: string;
-  lengthM?: number;
-  cleanMinutes?: number;
-  notes?: string;
-  startLat?: number;
-  startLon?: number;
-  endLat?: number;
-  endLon?: number;
-};
+const bodySchema = z.object({
+  filename: z.string(),
+  rows: z.array(rowSchema),
+});
 
-const HEADER_MAP: Record<string, keyof ImportRow> = {
-  "שם": "name",
-  "סוג": "type",
-  "אזור": "zone",
-  "עדיפות": "priority",
-  "תדירות": "frequency",
-  "אורך_מטר": "lengthM",
-  "זמן_ניקיון_דקות": "cleanMinutes",
-  "הערות": "notes",
-  "קו_רוחב_התחלה": "startLat",
-  "קו_אורך_התחלה": "startLon",
-  "קו_רוחב_סיום": "endLat",
-  "קו_אורך_סיום": "endLon",
-};
-
+/**
+ * Phase 2 of the street import (§4): the rows the manager already reviewed
+ * via /preview, committed in one transaction — either the whole batch lands
+ * or none of it does, and the ImportBatch audit row is written atomically
+ * with the data (see docs/PRE_DATA_COMPLETION_PLAN.md IMP-01). Rows with a
+ * hard error (no name) are skipped, not written, and counted in `errors`;
+ * everything else is written even if it carries a soft warning (e.g. an
+ * unrecognized zone name), matching what /preview showed.
+ */
 export async function POST(req: Request) {
   const session = await auth();
-  if (!session?.user || (session.user.role !== "ADMIN" && session.user.role !== "MANAGER")) {
+  if (!session?.user || !can(session.user.role, "streets.edit")) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
 
-  const formData = await req.formData();
-  const file = formData.get("file") as File | null;
-  if (!file) return NextResponse.json({ error: "no_file" }, { status: 400 });
-
-  const buffer = Buffer.from(await file.arrayBuffer());
-  const isCsv = file.name.toLowerCase().endsWith(".csv");
-  // SheetJS's buffer reader assumes a legacy single-byte codepage for CSV
-  // and mangles UTF-8 (Hebrew becomes mojibake) — decode as UTF-8 text
-  // ourselves and hand it a string instead. Binary .xlsx files still need
-  // the raw buffer path.
-  const workbook = isCsv
-    ? XLSX.read(buffer.toString("utf-8"), { type: "string" })
-    : XLSX.read(buffer, { type: "buffer" });
-  const sheet = workbook.Sheets[workbook.SheetNames[0]];
-  const rawRows = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: "" });
-
-  const rows: ImportRow[] = rawRows.map((raw) => {
-    const row: ImportRow = {};
-    for (const [header, value] of Object.entries(raw)) {
-      const key = HEADER_MAP[header.trim()];
-      if (!key) continue;
-      if (["lengthM", "cleanMinutes", "startLat", "startLon", "endLat", "endLon"].includes(key)) {
-        const num = Number(value);
-        if (!Number.isNaN(num) && value !== "") (row as Record<string, unknown>)[key] = num;
-      } else {
-        const str = String(value).trim();
-        if (str) (row as Record<string, unknown>)[key] = str;
-      }
-    }
-    return row;
-  });
+  const parsed = bodySchema.safeParse(await req.json());
+  if (!parsed.success) return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
+  const { filename, rows } = parsed.data as { filename: string; rows: ImportRow[] };
 
   const zones = await prisma.operationalZone.findMany({ where: { active: true } });
   const zoneByName = new Map(zones.map((z) => [z.name, z.id]));
+  // Built once up front (not a findFirst per row, per §IMP-01's own review
+  // note) and updated as rows are written so two similarly-named rows in the
+  // same file are still caught as duplicates of each other, not just of
+  // pre-existing streets.
+  const existingIndex = await buildExistingStreetIndex();
 
   let created = 0;
   let updated = 0;
   const errors: string[] = [];
+  // Geometry goes through raw SQL (Unsupported() column) and needs the
+  // street's id, which only exists after create/update — queued here and
+  // applied inside the same transaction once every row has an id.
+  const geometryQueue: { streetId: string; rowNum: number; coords: [number, number][] }[] = [];
 
-  for (let i = 0; i < rows.length; i++) {
-    const row = rows[i];
-    const rowNum = i + 2; // account for header row, 1-indexed
-    if (!row.name) {
-      errors.push(`שורה ${rowNum}: חסר שם רחוב`);
-      continue;
-    }
+  await prisma.$transaction(async (tx) => {
+    for (const row of rows) {
+      if (!row.name) {
+        errors.push(`שורה ${row.rowNum}: חסר שם רחוב`);
+        continue;
+      }
 
-    const type = row.type ? TYPE_MAP[row.type] ?? "STREET" : "STREET";
-    const priority = row.priority ? PRIORITY_MAP[row.priority] ?? "NORMAL" : "NORMAL";
-    const frequencyType = row.frequency ? FREQUENCY_MAP[row.frequency] ?? "WEEKLY" : "WEEKLY";
-    const zoneId = row.zone ? zoneByName.get(row.zone) ?? null : null;
-    if (row.zone && !zoneId) errors.push(`שורה ${rowNum}: אזור "${row.zone}" לא נמצא — הרחוב יובא ללא שיוך`);
+      const type = row.type ? TYPE_MAP[row.type] ?? "STREET" : "STREET";
+      const priority = row.priority ? PRIORITY_MAP[row.priority] ?? "NORMAL" : "NORMAL";
+      const frequencyType = row.frequency ? FREQUENCY_MAP[row.frequency] ?? "WEEKLY" : "WEEKLY";
+      const zoneId = row.zone ? zoneByName.get(row.zone) ?? null : null;
+      if (row.zone && !zoneId) errors.push(`שורה ${row.rowNum}: אזור "${row.zone}" לא נמצא — הרחוב יובא ללא שיוך`);
 
-    const existing = await prisma.street.findFirst({ where: { name: row.name, source: "MANUAL" } });
+      const normalizedName = normalizeStreetName(row.name);
+      const existing = existingIndex.get(normalizedName);
 
-    const data = {
-      name: row.name,
-      type: type as never,
-      priority: priority as never,
-      cleaningFrequency: { type: frequencyType },
-      zoneId,
-      estimatedCleanMinutes: row.cleanMinutes ?? null,
-      notes: row.notes ?? null,
-      source: "MANUAL" as const,
-    };
+      const data = {
+        name: row.name,
+        type: type as never,
+        priority: priority as never,
+        cleaningFrequency: { type: frequencyType },
+        zoneId,
+        estimatedCleanMinutes: row.cleanMinutes ?? null,
+        notes: row.notes ?? null,
+        source: "MANUAL" as const,
+      };
 
-    let streetId: string;
-    if (existing) {
-      await prisma.street.update({ where: { id: existing.id }, data });
-      streetId = existing.id;
-      updated++;
-    } else {
-      const created_ = await prisma.street.create({ data });
-      streetId = created_.id;
-      created++;
-    }
+      let streetId: string;
+      if (existing) {
+        await tx.street.update({ where: { id: existing.id }, data });
+        streetId = existing.id;
+        updated++;
+      } else {
+        const createdStreet = await tx.street.create({ data: { ...data, createdById: session.user.id } });
+        streetId = createdStreet.id;
+        existingIndex.set(normalizedName, { id: streetId, name: row.name });
+        created++;
+      }
 
-    if (row.startLat && row.startLon && row.endLat && row.endLon) {
-      try {
-        await setStreetGeometry(streetId, [
-          [row.startLon, row.startLat],
-          [row.endLon, row.endLat],
-        ]);
-      } catch {
-        errors.push(`שורה ${rowNum}: קואורדינטות לא תקינות`);
+      if (row.startLat != null && row.startLon != null && row.endLat != null && row.endLon != null) {
+        geometryQueue.push({
+          streetId,
+          rowNum: row.rowNum,
+          coords: [
+            [row.startLon, row.startLat],
+            [row.endLon, row.endLat],
+          ],
+        });
       }
     }
-  }
 
-  await prisma.importBatch.create({
-    data: {
-      type: "STREETS",
-      filename: file.name,
-      uploadedById: session.user.id,
-      rowCount: rows.length,
-      status: errors.length > 0 ? "PARTIAL" : "SUCCESS",
-      errorLog: errors.length > 0 ? errors : undefined,
-    },
+    for (const g of geometryQueue) {
+      try {
+        await setStreetGeometry(g.streetId, g.coords, tx);
+      } catch {
+        errors.push(`שורה ${g.rowNum}: קואורדינטות לא תקינות`);
+      }
+    }
+
+    await tx.importBatch.create({
+      data: {
+        type: "STREETS",
+        filename,
+        uploadedById: session.user.id,
+        rowCount: rows.length,
+        status: errors.length > 0 ? "PARTIAL" : "SUCCESS",
+        errorLog: errors.length > 0 ? (errors as unknown as Prisma.InputJsonValue) : undefined,
+      },
+    });
   });
 
   return NextResponse.json({ created, updated, total: rows.length, errors });

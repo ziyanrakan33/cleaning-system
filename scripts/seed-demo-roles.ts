@@ -11,19 +11,26 @@
 import "dotenv/config";
 import { prisma } from "@/lib/prisma";
 import bcrypt from "bcryptjs";
+import { isDemoModeEnabled } from "@/lib/env";
 
-const PASSWORD = process.env.SEED_DEMO_PASSWORD ?? "Demo1234!";
+const PASSWORD = process.env.SEED_DEMO_PASSWORD;
 
 const DEMO_USERS = [
-  { email: "inspector1@kfar-saba-cleaning.local", name: "מפקח אזורי", role: "INSPECTOR" as const },
-  { email: "deptmanager1@kfar-saba-cleaning.local", name: "מנהל אגף חזות העיר", role: "DEPT_MANAGER" as const },
-  { email: "contractor1@kfar-saba-cleaning.local", name: "נציג שלג לבן (1986) בע\"מ", role: "CONTRACTOR_MANAGER" as const },
-  { email: "contractor2@kfar-saba-cleaning.local", name: "נציג פרח השקד בע\"מ", role: "CONTRACTOR_MANAGER" as const },
-  { email: "supervisor1@kfar-saba-cleaning.local", name: "מנהל עבודה אזורי", role: "SITE_SUPERVISOR" as const },
-  { email: "finance1@kfar-saba-cleaning.local", name: "גזברות", role: "FINANCE" as const },
+  { email: "inspector1@kfar-saba-cleaning.local", name: "DEMO — מפקח אזורי", role: "INSPECTOR" as const },
+  { email: "deptmanager1@kfar-saba-cleaning.local", name: "DEMO — מנהל אגף חזות העיר", role: "DEPT_MANAGER" as const },
+  { email: "contractor1@kfar-saba-cleaning.local", name: "DEMO — נציג קבלן א׳", role: "CONTRACTOR_MANAGER" as const },
+  { email: "contractor2@kfar-saba-cleaning.local", name: "DEMO — נציג קבלן ב׳", role: "CONTRACTOR_MANAGER" as const },
+  { email: "supervisor1@kfar-saba-cleaning.local", name: "DEMO — מנהל עבודה אזורי", role: "SITE_SUPERVISOR" as const },
+  { email: "finance1@kfar-saba-cleaning.local", name: "DEMO — גזברות", role: "FINANCE" as const },
 ];
 
 async function main() {
+  if (!isDemoModeEnabled()) {
+    throw new Error("DEMO_MODE אינו מופעל — הריצו עם DEMO_MODE=true בקובץ .env כדי לזרוע משתמשי הדגמה.");
+  }
+  if (!PASSWORD) {
+    throw new Error("SEED_DEMO_PASSWORD לא הוגדר — יש לקבוע סיסמה מפורשת בקובץ .env, אין ברירת מחדל.");
+  }
   const passwordHash = await bcrypt.hash(PASSWORD, 10);
   let created = 0;
 

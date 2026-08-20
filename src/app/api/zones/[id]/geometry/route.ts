@@ -33,7 +33,7 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
       ? ring
       : [...ring, ring[0]];
 
-  await setZoneGeometry(id, closed);
+  const { repaired } = await setZoneGeometry(id, closed);
 
   // Drawn by hand on the map, so it is a deliberate human decision — record it
   // as verified rather than leaving it looking like an unconfirmed extraction.
@@ -77,6 +77,7 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
   return NextResponse.json({
     ok: true,
     zone,
+    repaired,
     join: {
       segmentsCreated: join.segmentsCreated,
       streetsAssigned: join.streetsAssigned,

@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { auth } from "@/lib/auth";
 import { can } from "@/lib/permissions";
+import { resolveContractAreaScope } from "@/server/scope";
 import { ReportPrintLayout } from "../../report-print-layout";
 import { shiftReport, SHIFT_TYPE_LABEL } from "@/server/reports/queries-execution";
 import { parseDateOnly, formatDateOnly, todayDateOnly } from "@/server/dateUtils";
@@ -12,6 +13,7 @@ export default async function ShiftPrintPage({
 }) {
   const session = await auth();
   if (!can(session?.user?.role, "reports.view")) redirect("/");
+  if (resolveContractAreaScope({ role: session?.user?.role ?? "", contractAreaId: session?.user?.contractAreaId }).restricted) redirect("/reports");
 
   const params = await searchParams;
   const shiftType = params.shiftType ?? "MORNING";

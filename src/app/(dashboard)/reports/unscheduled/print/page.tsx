@@ -1,3 +1,7 @@
+import { redirect } from "next/navigation";
+import { auth } from "@/lib/auth";
+import { can } from "@/lib/permissions";
+import { resolveContractAreaScope } from "@/server/scope";
 import { getDashboardStats } from "@/server/dashboard";
 import { formatDateOnly, todayDateOnly } from "@/server/dateUtils";
 import { PrintButton } from "../../print-button";
@@ -5,6 +9,10 @@ import { PrintButton } from "../../print-button";
 const PRIORITY_LABEL: Record<string, string> = { CRITICAL: "קריטי", HIGH: "גבוה", NORMAL: "רגיל", LOW: "נמוך" };
 
 export default async function UnscheduledPrintPage() {
+  const session = await auth();
+  if (!can(session?.user?.role, "reports.view")) redirect("/");
+  if (resolveContractAreaScope({ role: session?.user?.role ?? "", contractAreaId: session?.user?.contractAreaId }).restricted) redirect("/reports");
+
   const stats = await getDashboardStats();
 
   return (

@@ -8,19 +8,24 @@
     "start": "next start",
     "lint": "eslint",
     "typecheck": "tsc --noEmit",
+    "test": "vitest run",
     "seed:tender": "tsx --env-file=.env scripts/seed-tender-data.ts",
     "seed:zones": "tsx --env-file=.env scripts/seed-operational-zones.ts",
     "seed:defect-types": "tsx --env-file=.env scripts/seed-defect-types.ts",
     "seed:demo-roles": "tsx --env-file=.env scripts/seed-demo-roles.ts",
+    "seed:demo-routing": "tsx --env-file=.env scripts/seed-demo-routing.ts",
+    "clear:demo-routing": "tsx --env-file=.env scripts/clear-demo-routing.ts",
     "spatial-join": "tsx --env-file=.env scripts/run-spatial-join.ts",
     "test:spatial": "tsx --env-file=.env scripts/test-spatial-join.ts",
     "test:defects": "tsx --env-file=.env scripts/test-defects.ts",
     "test:reports": "tsx --env-file=.env scripts/test-reports.ts",
     "test:allocation": "tsx --env-file=.env scripts/test-allocation.ts",
+    "test:routing": "tsx --env-file=.env scripts/test-smart-routing.ts",
     "smoke:tender": "node scripts/smoke-tender-sources.mjs",
     "smoke:defects": "node scripts/smoke-defects.mjs",
     "smoke:reports": "node scripts/smoke-reports.mjs",
     "smoke:allocation": "node scripts/smoke-allocation.mjs",
+    "smoke:routing": "node scripts/smoke-smart-routing.mjs",
     "smoke:regression": "node scripts/smoke-full-regression.mjs"
   },
   "dependencies": {
@@ -35,6 +40,7 @@
     "next-auth": "^5.0.0-beta.32",
     "papaparse": "^5.6.0",
     "pg": "^8.23.0",
+    "pino": "^10.3.1",
     "prisma": "^7.9.1",
     "react": "19.2.8",
     "react-dom": "19.2.8",
@@ -53,6 +59,7 @@
     "playwright": "^1.62.1",
     "tailwindcss": "^4",
     "tsx": "^4.23.12",
-    "typescript": "^5"
+    "typescript": "^5",
+    "vitest": "^4.1.10"
   }
 }

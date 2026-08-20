@@ -5,11 +5,14 @@ declare module "next-auth" {
     user: {
       id: string;
       role: string;
+      /** Contract area a contractor-side account is restricted to — see src/server/scope.ts. */
+      contractAreaId: string | null;
     } & DefaultSession["user"];
   }
 
   interface User {
     role: string;
+    contractAreaId?: string | null;
   }
 }
 
@@ -17,5 +20,6 @@ declare module "next-auth/jwt" {
   interface JWT {
     id: string;
     role: string;
+    contractAreaId: string | null;
   }
 }

@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { auth } from "@/lib/auth";
 import { can } from "@/lib/permissions";
+import { resolveContractAreaScope } from "@/server/scope";
 import { ReportPrintLayout } from "../../report-print-layout";
 import { hoursPlannedVsActualReport } from "@/server/reports/queries-execution";
 import { parseDateOnly, formatDateOnly, addDaysToDateOnly, todayDateOnly } from "@/server/dateUtils";
@@ -8,6 +9,7 @@ import { parseDateOnly, formatDateOnly, addDaysToDateOnly, todayDateOnly } from 
 export default async function HoursPrintPage({ searchParams }: { searchParams: Promise<{ from?: string; to?: string }> }) {
   const session = await auth();
   if (!can(session?.user?.role, "reports.view")) redirect("/");
+  if (resolveContractAreaScope({ role: session?.user?.role ?? "", contractAreaId: session?.user?.contractAreaId }).restricted) redirect("/reports");
 
   const params = await searchParams;
   const today = todayDateOnly();

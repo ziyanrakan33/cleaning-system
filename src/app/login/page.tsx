@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { signIn } from "@/lib/auth";
 import { AuthError } from "next-auth";
+import { getOrganizationSettings } from "@/server/settings/service";
 
 async function authenticate(formData: FormData) {
   "use server";
@@ -23,13 +24,13 @@ export default async function LoginPage({
 }: {
   searchParams: Promise<{ error?: string; callbackUrl?: string }>;
 }) {
-  const params = await searchParams;
+  const [params, org] = await Promise.all([searchParams, getOrganizationSettings()]);
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-background px-4">
       <div className="w-full max-w-sm rounded-xl border border-panel-border bg-panel p-8 shadow-xl">
         <h1 className="mb-1 text-xl font-bold">מערכת ניקיון עירוני</h1>
-        <p className="mb-6 text-sm text-muted">כפר סבא — כניסת מנהלים ועובדים</p>
+        <p className="mb-6 text-sm text-muted">{org.name} — כניסת מנהלים ועובדים</p>
 
         {params.error && (
           <div className="mb-4 rounded-md border border-danger/30 bg-danger/10 px-3 py-2 text-sm text-danger">

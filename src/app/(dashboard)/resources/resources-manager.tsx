@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation";
 import { Fragment, useState } from "react";
 import { AvailabilityStrip } from "@/components/availability-strip";
+import { ResourceOperationalProfilePanel } from "@/components/resource-operational-profile-panel";
 
 type ResourceType = { id: string; name: string; code: string };
 type ResourceRow = {
@@ -41,6 +42,7 @@ export function ResourcesManager({
   const router = useRouter();
   const [showTypeForm, setShowTypeForm] = useState(false);
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [expandedPanel, setExpandedPanel] = useState<"availability" | "profile">("availability");
   const [typeName, setTypeName] = useState("");
   const [typeCode, setTypeCode] = useState("");
 
@@ -103,12 +105,22 @@ export function ResourcesManager({
     router.refresh();
   }
 
-  async function updateEmployee(id: string, employeeId: string) {
-    await fetch(`/api/resources/${id}`, {
+  async function updateEmployee(id: string, employeeId: string, overrideReason?: string) {
+    const res = await fetch(`/api/resources/${id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ assignedEmployeeId: employeeId || null }),
+      body: JSON.stringify({ assignedEmployeeId: employeeId || null, overrideReason }),
     });
+    if (res.status === 409) {
+      const body = await res.json();
+      if (body.error === "employee_already_assigned") {
+        const reason = window.prompt(`${body.message}\n\nנימוק לשיוך בכל זאת:`);
+        if (reason && reason.trim().length > 0) {
+          await updateEmployee(id, employeeId, reason.trim());
+        }
+        return;
+      }
+    }
     router.refresh();
   }
 
@@ -295,19 +307,35 @@ export function ResourcesManager({
                     ))}
                   </select>
                 </td>
-                <td className="px-4 py-2">
+                <td className="flex gap-2 px-4 py-2">
                   <button
-                    onClick={() => setExpandedId(expandedId === r.id ? null : r.id)}
+                    onClick={() => {
+                      setExpandedPanel("availability");
+                      setExpandedId(expandedId === r.id && expandedPanel === "availability" ? null : r.id);
+                    }}
                     className="text-xs text-accent hover:underline"
                   >
-                    {expandedId === r.id ? "סגור" : "לוח זמינות"}
+                    {expandedId === r.id && expandedPanel === "availability" ? "סגור" : "זמינות"}
+                  </button>
+                  <button
+                    onClick={() => {
+                      setExpandedPanel("profile");
+                      setExpandedId(expandedId === r.id && expandedPanel === "profile" ? null : r.id);
+                    }}
+                    className="text-xs text-accent hover:underline"
+                  >
+                    {expandedId === r.id && expandedPanel === "profile" ? "סגור" : "פרופיל תפעולי"}
                   </button>
                 </td>
               </tr>
               {expandedId === r.id && (
                 <tr className="border-b border-panel-border/60 bg-background/50">
                   <td colSpan={7}>
-                    <AvailabilityStrip resourceId={r.id} />
+                    {expandedPanel === "availability" ? (
+                      <AvailabilityStrip resourceId={r.id} />
+                    ) : (
+                      <ResourceOperationalProfilePanel resourceId={r.id} canEdit={canEdit} />
+                    )}
                   </td>
                 </tr>
               )}

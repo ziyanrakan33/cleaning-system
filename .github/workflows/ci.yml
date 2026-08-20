@@ -1,0 +1,42 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  lint-typecheck-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Unit tests
+        run: npm test
+
+      - name: Generate Prisma client
+        run: npx prisma generate
+
+      - name: Build
+        # DATABASE_URL is required for the Prisma client to initialize even
+        # though `next build` does not execute queries for this app's
+        # server-rendered (non-static) routes. Set a real DATABASE_URL repo
+        # secret pointing at a disposable/CI Postgres+PostGIS instance if this
+        # step ever needs actual query access at build time.
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL || 'postgresql://user:pass@localhost:5432/ci_placeholder' }}
+          AUTH_SECRET: ${{ secrets.AUTH_SECRET || 'ci-placeholder-secret-not-for-real-use' }}
+        run: npm run build

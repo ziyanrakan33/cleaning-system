@@ -62,6 +62,67 @@ export async function getDashboardStats() {
     }
   }
 
+  // ---- smart cleaning additions (§15) --------------------------------------
+  const [
+    dirtyHighPriorityProfiles,
+    brokenWaterPoints,
+    openComplaints,
+    pendingSurveys,
+    pendingWaterPoints,
+    activeResourcesWithProfile,
+    resourcesLowOnWater,
+    profilesByDataMode,
+    activeManualOverrides,
+  ] = await Promise.all([
+    prisma.streetCleaningProfile.findMany({
+      where: { dirtScore: { gte: 70 } },
+      orderBy: { dirtScore: "desc" },
+      take: 10,
+      include: { street: { select: { id: true, name: true } } },
+    }),
+    prisma.waterRefillPoint.count({ where: { active: true, status: "BROKEN" } }),
+    prisma.complaint.count({ where: { status: { notIn: ["RESOLVED", "REJECTED", "CLOSED"] } } }),
+    prisma.street.count({ where: { active: true, cleaningProfile: null } }),
+    prisma.waterRefillPoint.count({ where: { active: true, verificationStatus: "REQUIRES_REVIEW" } }),
+    prisma.resource.findMany({
+      where: { active: true, status: "ACTIVE" },
+      include: { operationalProfile: true, resourceType: true },
+    }),
+    // Today's plan tasks whose projected water after the segment is low —
+    // a real signal only when the plan actually carries a water projection.
+    latestPlan
+      ? prisma.workPlanTask.findMany({
+          where: { workPlanId: latestPlan.id, projectedWaterAfterL: { not: null } },
+          orderBy: { projectedWaterAfterL: "asc" },
+          take: 5,
+          include: { resource: { select: { identifier: true, resourceType: { select: { name: true } } } } },
+        })
+      : Promise.resolve([]),
+    // How mature/trustworthy the priority data is city-wide (§2's REQUIRES_REVIEW
+    // → MANUAL_BASELINE → RULE_BASED → DATA_INFORMED ladder) — a manager
+    // cannot see this at a glance without it.
+    prisma.streetCleaningProfile.groupBy({ by: ["dataMode"], _count: true }),
+    prisma.streetCleaningProfile.count({ where: { manuallyOverridden: true } }),
+  ]);
+
+  // §IMP-09: source-verification signals previously only visible on /sources
+  // — surfaced here too so "is this system ready" has one screen to check,
+  // not several.
+  const [openSourceConflicts, unassignedContractAreaZones] = await Promise.all([
+    prisma.sourceConflict.count({ where: { status: "OPEN" } }),
+    prisma.operationalZone.count({ where: { active: true, contractAreaId: null } }),
+  ]);
+
+  const plansNotFeasible = latestPlan?.id
+    ? await prisma.workPlan.findFirst({
+        where: { id: latestPlan.id },
+        select: { feasibility: true },
+      })
+    : null;
+  const feasibilityFailedChecks = (
+    (plansNotFeasible?.feasibility as { checks?: { passed: boolean; severity: string }[] } | null)?.checks ?? []
+  ).filter((c) => c.severity === "BLOCKING" && !c.passed).length;
+
   return {
     totalStreets,
     unassignedZoneStreets,
@@ -80,5 +141,27 @@ export async function getDashboardStats() {
     hasPlanToday: !!latestPlan,
     loadByResource: [...loadByResource.values()],
     loadByZone: [...loadByZone.values()],
+
+    dirtyHighPriorityStreets: dirtyHighPriorityProfiles.map((p) => ({
+      streetId: p.streetId,
+      streetName: p.street.name,
+      dirtScore: p.dirtScore,
+    })),
+    brokenWaterPointsCount: brokenWaterPoints,
+    openComplaintsCount: openComplaints,
+    pendingSurveyCount: pendingSurveys,
+    servicePointsRequiringVerification: pendingWaterPoints,
+    resourcesRequiringProfileReview: activeResourcesWithProfile.filter((r) => !r.operationalProfile).length,
+    resourcesLowOnWater: resourcesLowOnWater.map((t) => ({
+      resourceLabel: `${t.resource.resourceType.name} ${t.resource.identifier}`,
+      streetId: t.streetId,
+      projectedWaterAfterL: t.projectedWaterAfterL,
+    })),
+    planFeasibilityFailedChecks: feasibilityFailedChecks,
+
+    dataMaturityBreakdown: profilesByDataMode.map((r) => ({ dataMode: r.dataMode, count: r._count })),
+    activeManualOverridesCount: activeManualOverrides,
+    openSourceConflicts,
+    unassignedContractAreaZones,
   };
 }

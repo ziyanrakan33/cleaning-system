@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { auth } from "@/lib/auth";
+import { can } from "@/lib/permissions";
+import { audit } from "@/server/audit";
 
 const patchSchema = z.object({
   name: z.string().min(1).optional(),
@@ -12,7 +14,7 @@ const patchSchema = z.object({
 
 export async function PATCH(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const session = await auth();
-  if (!session?.user || (session.user.role !== "ADMIN" && session.user.role !== "MANAGER")) {
+  if (!session?.user || !can(session.user.role, "zones.editBoundary")) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
 
@@ -23,6 +25,16 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
   }
 
   const zone = await prisma.operationalZone.update({ where: { id }, data: parsed.data });
+
+  await audit({
+    entityType: "OperationalZone",
+    entityId: zone.id,
+    action: "ZONE_UPDATED",
+    userId: session.user.id,
+    after: parsed.data,
+    description: `אזור תפעולי "${zone.name}" עודכן`,
+  });
+
   return NextResponse.json(zone);
 }
 
@@ -34,9 +46,19 @@ export async function DELETE(_req: Request, { params }: { params: Promise<{ id: 
 
   const { id } = await params;
   // Soft delete: keep history, unassign streets.
-  await prisma.$transaction([
+  const [, zone] = await prisma.$transaction([
     prisma.street.updateMany({ where: { zoneId: id }, data: { zoneId: null } }),
     prisma.operationalZone.update({ where: { id }, data: { active: false } }),
   ]);
+
+  await audit({
+    entityType: "OperationalZone",
+    entityId: id,
+    action: "ZONE_DEACTIVATED",
+    userId: session.user.id,
+    after: { active: false },
+    description: `אזור תפעולי "${zone.name}" הושבת ורחובותיו שוחררו מהשיוך`,
+  });
+
   return NextResponse.json({ ok: true });
 }

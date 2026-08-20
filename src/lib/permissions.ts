@@ -84,7 +84,19 @@ export type Permission =
   /** Plan and run the daily inspection rounds. */
   | "inspections.manage"
   /** See and export operational reports (money figures inside them still gate on finance.view). */
-  | "reports.view";
+  | "reports.view"
+  /** Fill in the field survey and edit a street's cleaning profile (§1, §3). */
+  | "profiles.edit"
+  /** Create and maintain water refill and waste disposal points (§4, §5). */
+  | "servicePoints.manage"
+  /** Change scoring weights, route cost weights and learning thresholds (§2, §11). */
+  | "routing.configure"
+  /** Open a shift and report execution from the field (§7, §8). */
+  | "field.report"
+  /** Review what the learning layer changed, and void a bad sample (§17). */
+  | "learning.review"
+  /** Seed and delete the demo dataset (§19). */
+  | "demo.manage";
 
 /**
  * MANAGER predates the tender roles and no account uses it, but older route
@@ -111,6 +123,13 @@ const DEPT_MANAGER_PERMISSIONS: Permission[] = [
   "complaints.manage",
   "inspections.manage",
   "reports.view",
+  // The מנהל עבודה is the person the survey and the profile are built around —
+  // §18 puts rating streets, managing water points and fixing access problems
+  // squarely with him.
+  "profiles.edit",
+  "servicePoints.manage",
+  "field.report",
+  "learning.review",
 ];
 
 const ROLE_PERMISSIONS: Record<Role, Permission[]> = {
@@ -142,6 +161,12 @@ const ROLE_PERMISSIONS: Record<Role, Permission[]> = {
     "complaints.manage",
     "inspections.manage",
     "reports.view",
+    "profiles.edit",
+    "servicePoints.manage",
+    "routing.configure",
+    "field.report",
+    "learning.review",
+    "demo.manage",
   ],
 
   CITY_MANAGER: [
@@ -170,6 +195,13 @@ const ROLE_PERMISSIONS: Record<Role, Permission[]> = {
     "complaints.manage",
     "inspections.manage",
     "reports.view",
+    "profiles.edit",
+    "servicePoints.manage",
+    // Changing the weights changes every recommendation the city sees, so it
+    // sits with the city manager and the admin only — same reasoning as
+    // zones.assignContractArea above.
+    "routing.configure",
+    "learning.review",
   ],
 
   DEPT_MANAGER: DEPT_MANAGER_PERMISSIONS,
@@ -188,6 +220,11 @@ const ROLE_PERMISSIONS: Record<Role, Permission[]> = {
     "complaints.manage",
     "inspections.manage",
     "reports.view",
+    // The inspector walks the ground twice a day (§561) and is best placed to
+    // rate a street and flag a broken water point — but not to change the
+    // weights that turn those ratings into a plan.
+    "profiles.edit",
+    "servicePoints.manage",
   ],
 
   // A contractor sees their own operation but no prices and no other
@@ -202,11 +239,24 @@ const ROLE_PERMISSIONS: Record<Role, Permission[]> = {
     "defects.work",
     "defects.appeal",
     "reports.view",
+    "field.report",
   ],
 
-  SITE_SUPERVISOR: ["workers.viewPersonal", "defects.view", "defects.work", "reports.view"],
+  SITE_SUPERVISOR: [
+    "workers.viewPersonal",
+    "defects.view",
+    "defects.work",
+    "reports.view",
+    "profiles.edit",
+    "servicePoints.manage",
+    "field.report",
+  ],
 
-  EMPLOYEE: [],
+  // A driver still has no dashboard and no edit rights anywhere — the one thing
+  // he may do is report what he did, from /my-day. Without this the shift and
+  // execution forms of §7/§8 would be unreachable by the only people who fill
+  // them in.
+  EMPLOYEE: ["field.report"],
 
   // A read-only role still needs to be able to open reports — that is the
   // point of "צפייה בלבד". It gets no edit permissions anywhere else.
@@ -238,12 +288,16 @@ export function canSeeNav(role: string | undefined | null, href: string): boolea
   if (href === "/users") return can(role, "users.manage");
   if (href === "/defects" || href === "/inspections") return can(role, "defects.view");
   if (href === "/complaints") return can(role, "complaints.manage");
+  if (href === "/survey") return can(role, "profiles.edit");
+  if (href === "/service-points") return can(role, "servicePoints.manage");
+  if (href === "/learning") return can(role, "learning.review");
+  if (href === "/settings") return can(role, "routing.configure");
   // FINANCE is a reporting role: it gets money and provenance, not operations.
   if (role === "FINANCE") return ["/", "/reports", "/sources", "/defects"].includes(href);
   // The contractor side gets the defect queue and its own plans, not the
   // municipality's zone administration or source verification.
   if (role === "CONTRACTOR_MANAGER" || role === "SITE_SUPERVISOR") {
-    return ["/", "/defects", "/plans", "/plans/weekly", "/reports"].includes(href);
+    return ["/", "/defects", "/plans", "/plans/weekly", "/reports", "/survey", "/service-points"].includes(href);
   }
   return true;
 }

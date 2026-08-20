@@ -2,12 +2,15 @@ import Link from "next/link";
 import { auth, signOut } from "@/lib/auth";
 import { canSeeNav, ROLE_LABELS, type Role } from "@/lib/permissions";
 import { prisma } from "@/lib/prisma";
+import { getOrganizationSettings } from "@/server/settings/service";
 
 const NAV_ITEMS = [
   { href: "/", label: "בקרה" },
   { href: "/map", label: "מפת מנהל" },
   { href: "/sources", label: "מקורות ואימות" },
   { href: "/streets", label: "רחובות ושבילים" },
+  { href: "/survey", label: "סקר שטח" },
+  { href: "/service-points", label: "נקודות מים ופריקה" },
   { href: "/zones", label: "אזורים" },
   { href: "/resources", label: "משאבים" },
   { href: "/defects", label: "ליקויים" },
@@ -18,6 +21,8 @@ const NAV_ITEMS = [
   { href: "/plans/weekly", label: "לוח שבועי" },
   { href: "/plans/history", label: "היסטוריית גרסאות" },
   { href: "/reports", label: "דוחות" },
+  { href: "/learning", label: "למידה מהביצוע" },
+  { href: "/settings", label: "הגדרות ומשקלים" },
 ];
 
 export default async function DashboardLayout({ children }: { children: React.ReactNode }) {
@@ -27,7 +32,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
 
   // Surfaced in the sidebar so unverified data is visible from every screen,
   // not only when someone thinks to open the sources page.
-  const [openConflicts, unassignedZones, overdueDefects] = await Promise.all([
+  const [openConflicts, unassignedZones, overdueDefects, demoZoneCount, org] = await Promise.all([
     prisma.sourceConflict.count({ where: { status: "OPEN" } }),
     prisma.operationalZone.count({ where: { active: true, contractAreaId: null } }),
     canSeeNav(role, "/defects")
@@ -35,15 +40,18 @@ export default async function DashboardLayout({ children }: { children: React.Re
           where: { dueAt: { lt: new Date() }, status: { notIn: ["FIXED", "CLOSED", "REJECTED"] } },
         })
       : Promise.resolve(0),
+    prisma.operationalZone.count({ where: { isDemo: true } }),
+    getOrganizationSettings(),
   ]);
   const pendingCount = openConflicts + unassignedZones;
+  const hasDemoData = demoZoneCount > 0;
 
   return (
     <div className="flex min-h-screen">
       <aside className="no-print flex w-60 shrink-0 flex-col border-l border-panel-border bg-panel">
         <div className="border-b border-panel-border px-4 py-4">
           <div className="text-sm font-bold leading-tight">ניקיון עירוני</div>
-          <div className="text-xs text-muted">כפר סבא</div>
+          <div className="text-xs text-muted">{org.name}</div>
         </div>
         <nav className="flex flex-1 flex-col gap-0.5 p-2">
           {navItems.map((item) => (
@@ -88,7 +96,14 @@ export default async function DashboardLayout({ children }: { children: React.Re
           </form>
         </div>
       </aside>
-      <main className="flex-1 overflow-x-hidden bg-background">{children}</main>
+      <main className="flex-1 overflow-x-hidden bg-background">
+        {hasDemoData && (
+          <div className="no-print border-b border-warning/40 bg-warning/10 px-4 py-1.5 text-center text-xs font-semibold text-warning">
+            נתוני הדגמה (DEMO) פעילים במערכת זו — לא לשימוש בעבודה אמיתית. ניתן להסירם ב״הגדרות״.
+          </div>
+        )}
+        {children}
+      </main>
     </div>
   );
 }

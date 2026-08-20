@@ -1,3 +1,7 @@
+import { redirect } from "next/navigation";
+import { auth } from "@/lib/auth";
+import { can } from "@/lib/permissions";
+import { resolveContractAreaScope } from "@/server/scope";
 import { prisma } from "@/lib/prisma";
 import { parseDateOnly, formatDateOnly, todayDateOnly } from "@/server/dateUtils";
 import { PrintButton } from "../../print-button";
@@ -6,6 +10,10 @@ const PRIORITY_LABEL: Record<string, string> = { CRITICAL: "קריטי", HIGH: "
 const STATUS_LABEL: Record<string, string> = { PENDING: "ממתין", IN_PROGRESS: "בביצוע", DONE: "בוצע", NOT_DONE: "לא בוצע", PROBLEM: "בעיה" };
 
 export default async function DailyPrintPage({ searchParams }: { searchParams: Promise<{ date?: string }> }) {
+  const session = await auth();
+  if (!can(session?.user?.role, "reports.view")) redirect("/");
+  if (resolveContractAreaScope({ role: session?.user?.role ?? "", contractAreaId: session?.user?.contractAreaId }).restricted) redirect("/reports");
+
   const params = await searchParams;
   const date = params.date ? parseDateOnly(params.date) : todayDateOnly();
 

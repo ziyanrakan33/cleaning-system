@@ -2,6 +2,8 @@ import { prisma } from "@/lib/prisma";
 import { roadNetworkRouting } from "@/server/routing/graph";
 import { travelMinutes } from "./estimate";
 import { localDateAtTime } from "@/server/dateUtils";
+import { resolveVehicleProfile } from "@/server/resources/operationalProfile";
+import { segmentWaterLiters } from "@/server/routing/optimization/water";
 
 function hhmmToMinutes(hhmm: string): number {
   const [h, m] = hhmm.split(":").map(Number);
@@ -22,17 +24,39 @@ function minutesToTimeParts(totalMinutes: number): [number, number] {
  * stays consistent — not a full re-optimization, just correct bookkeeping.
  */
 async function resequenceResource(workPlanId: string, resourceId: string, date: Date) {
-  const resource = await prisma.resource.findUnique({ where: { id: resourceId } });
+  const resource = await prisma.resource.findUnique({
+    where: { id: resourceId },
+    include: { resourceType: true, operationalProfile: true },
+  });
   if (!resource?.workHoursStart) return;
 
   const tasks = await prisma.workPlanTask.findMany({
     where: { workPlanId, resourceId },
     orderBy: { sequenceOrder: "asc" },
-    include: { street: { select: { startPointLon: true, startPointLat: true, endPointLon: true, endPointLat: true } } },
+    include: {
+      street: {
+        select: {
+          startPointLon: true,
+          startPointLat: true,
+          endPointLon: true,
+          endPointLat: true,
+          lengthM: true,
+          cleaningProfile: true,
+        },
+      },
+    },
   });
+
+  const vehicle = resolveVehicleProfile(resource);
 
   let cursorMin = hhmmToMinutes(resource.workHoursStart);
   let prevEnd: [number, number] | null = null;
+  // Re-simulating past service stops during a manual drag is out of scope
+  // here (PlanEditorBoard has no way to add one yet) — the tank is walked
+  // down from full capacity on every resequence instead, which keeps the
+  // "would we run dry in this order" signal honest even though it does not
+  // account for a refill stop elsewhere in the plan.
+  let waterRemaining = vehicle.waterCapacityL;
 
   for (let i = 0; i < tasks.length; i++) {
     const t = tasks[i];
@@ -41,7 +65,9 @@ async function resequenceResource(workPlanId: string, resourceId: string, date: 
     const end: [number, number] | null =
       t.street.endPointLon != null && t.street.endPointLat != null ? [t.street.endPointLon, t.street.endPointLat] : null;
 
-    const distanceM = prevEnd && start ? roadNetworkRouting.distanceMeters(prevEnd, start) : 0;
+    const distanceResult = prevEnd && start ? roadNetworkRouting.distanceMetersWithBasis(prevEnd, start) : null;
+    const distanceM = distanceResult ? distanceResult.meters : 0;
+    const distanceBasis = distanceResult ? distanceResult.basis : null;
     const travelMin = travelMinutes(distanceM, resource.attributes);
     const cleanMin = t.cleanTimeMin ?? 10;
 
@@ -53,9 +79,43 @@ async function resequenceResource(workPlanId: string, resourceId: string, date: 
     const [eh, em] = minutesToTimeParts(cursorMin);
     const plannedEnd = localDateAtTime(date, eh, em);
 
+    const profile = t.street.cleaningProfile;
+    let waterUsed: number | null = null;
+    let waterAfter: number | null = null;
+    let waterBasis: "ESTIMATED" | "MEASURED" | null = null;
+    if (waterRemaining !== null && profile) {
+      waterUsed = segmentWaterLiters(
+        {
+          streetId: t.streetId,
+          streetName: "",
+          lengthM: t.street.lengthM,
+          cleanMinutes: cleanMin,
+          requiresWater: profile.requiresWater,
+          estWaterLitersPer100m: profile.estWaterLitersPer100m,
+          usesPressureWash: profile.usesPressureWash,
+          dirtLevel: profile.dirtDynamicLevel ?? profile.dirtBaseLevel,
+          waterFigureIsMeasured: profile.dataMode === "DATA_INFORMED",
+        },
+        vehicle
+      );
+      waterRemaining = Math.max(0, waterRemaining - waterUsed);
+      waterAfter = waterRemaining;
+      waterBasis = profile.dataMode === "DATA_INFORMED" ? "MEASURED" : "ESTIMATED";
+    }
+
     await prisma.workPlanTask.update({
       where: { id: t.id },
-      data: { sequenceOrder: i, plannedStart, plannedEnd, distanceM, travelTimeMin: travelMin },
+      data: {
+        sequenceOrder: i,
+        plannedStart,
+        plannedEnd,
+        distanceM,
+        distanceBasis,
+        travelTimeMin: travelMin,
+        plannedWaterLiters: waterUsed,
+        projectedWaterAfterL: waterAfter,
+        waterBasis,
+      },
     });
 
     prevEnd = end ?? start ?? prevEnd;

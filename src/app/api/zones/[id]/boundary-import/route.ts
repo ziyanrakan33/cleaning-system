@@ -44,7 +44,8 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     throw err;
   }
 
-  await setZoneGeometry(id, parsed.ring);
+  const { repaired } = await setZoneGeometry(id, parsed.ring);
+  if (repaired) parsed.warnings.push("הגבול שיובא לא היה תקין גיאומטרית (צורה עצמית-חוצה) ותוקן אוטומטית — מומלץ לבדוק על המפה שהצורה נכונה.");
 
   await prisma.operationalZone.update({
     where: { id },

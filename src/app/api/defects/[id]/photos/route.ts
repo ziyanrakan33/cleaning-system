@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { auth } from "@/lib/auth";
 import { can } from "@/lib/permissions";
 import { audit } from "@/server/audit";
+import { checkRateLimit } from "@/lib/rateLimit";
 
 /** Large enough for a phone photo, small enough to keep out of the request timeout. */
 const MAX_BYTES = 6 * 1024 * 1024;
@@ -16,6 +17,9 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   // contractor documents the fix.
   if (!can(session.user.role, "defects.create") && !can(session.user.role, "defects.work")) {
     return NextResponse.json({ error: "אין הרשאה להעלות תמונות" }, { status: 403 });
+  }
+  if (!checkRateLimit(`photo-upload:${session.user.id}`, 30, 60_000)) {
+    return NextResponse.json({ error: "rate_limited", message: "יותר מדי העלאות — נסו שוב בעוד דקה." }, { status: 429 });
   }
 
   const { id } = await params;

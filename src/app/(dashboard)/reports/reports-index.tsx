@@ -108,6 +108,16 @@ export function ReportsIndex({
         </div>
       </section>
 
+      {/* ---------------- מים ותכנון מסלולים ---------------- */}
+      <section>
+        <h2 className="mb-3 text-sm font-semibold text-muted">מים ותכנון מסלולים</h2>
+        <div className="grid gap-4 lg:grid-cols-2">
+          <WaterConsumptionCard />
+          <ServiceStopsCard />
+          <ForecastAccuracyCard />
+        </div>
+      </section>
+
       {/* ---------------- ליקויים, איכות ובקרה ---------------- */}
       <section>
         <h2 className="mb-3 text-sm font-semibold text-muted">ליקויים, איכות ובקרה</h2>
@@ -447,6 +457,73 @@ function ResourceUtilizationCard({ contractAreas }: { contractAreas: Option[] })
         </Field>
       </div>
       <ActionLinks printHref={`/reports/resource-utilization/print?${q}`} exportType="resource-utilization" exportQuery={q} />
+    </ReportCard>
+  );
+}
+
+// ============================== water / routing ==============================
+
+function WaterConsumptionCard() {
+  const [from, setFrom] = useState(daysAgoStr(6));
+  const [to, setTo] = useState(todayStr());
+  const [groupBy, setGroupBy] = useState("resource");
+  const q = `from=${from}&to=${to}&groupBy=${groupBy}`;
+  return (
+    <ReportCard title="דוח צריכת מים (מתוכנן)" description="ליטרים מתוכננים לפי כלי, אזור או סוג תשתית, מתוך תוכניות העבודה שפורסמו">
+      <div className="flex flex-wrap gap-2">
+        <Field label="מתאריך">
+          <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} dir="ltr" className={inputCls} />
+        </Field>
+        <Field label="עד תאריך">
+          <input type="date" value={to} onChange={(e) => setTo(e.target.value)} dir="ltr" className={inputCls} />
+        </Field>
+        <Field label="קיבוץ">
+          <select value={groupBy} onChange={(e) => setGroupBy(e.target.value)} className={inputCls}>
+            <option value="resource">לפי כלי</option>
+            <option value="zone">לפי אזור</option>
+            <option value="infrastructure">לפי סוג תשתית</option>
+          </select>
+        </Field>
+      </div>
+      <ActionLinks printHref={`/reports/water-consumption/print?${q}`} exportType="water-consumption" exportQuery={q} />
+    </ReportCard>
+  );
+}
+
+function ServiceStopsCard() {
+  const [from, setFrom] = useState(daysAgoStr(6));
+  const [to, setTo] = useState(todayStr());
+  const q = `from=${from}&to=${to}`;
+  return (
+    <ReportCard title="דוח עצירות מילוי ופריקה" description="כמות ביקורים וזמן שירות/נסיעה ממוצע לכל נקודת מים או פריקה">
+      <div className="flex gap-2">
+        <Field label="מתאריך">
+          <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} dir="ltr" className={inputCls} />
+        </Field>
+        <Field label="עד תאריך">
+          <input type="date" value={to} onChange={(e) => setTo(e.target.value)} dir="ltr" className={inputCls} />
+        </Field>
+      </div>
+      <ActionLinks printHref={`/reports/service-stops/print?${q}`} exportType="service-stops" exportQuery={q} />
+    </ReportCard>
+  );
+}
+
+function ForecastAccuracyCard() {
+  const [from, setFrom] = useState(daysAgoStr(30));
+  const [to, setTo] = useState(todayStr());
+  const q = `from=${from}&to=${to}`;
+  return (
+    <ReportCard title="דוח דיוק תחזית זמן ניקיון" description="זמן מתוכנן מול זמן בפועל, לפי דיווחי ביצוע בפועל בלבד (§8)">
+      <div className="flex gap-2">
+        <Field label="מתאריך">
+          <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} dir="ltr" className={inputCls} />
+        </Field>
+        <Field label="עד תאריך">
+          <input type="date" value={to} onChange={(e) => setTo(e.target.value)} dir="ltr" className={inputCls} />
+        </Field>
+      </div>
+      <ActionLinks printHref={`/reports/forecast-accuracy/print?${q}`} exportType="forecast-accuracy" exportQuery={q} />
     </ReportCard>
   );
 }

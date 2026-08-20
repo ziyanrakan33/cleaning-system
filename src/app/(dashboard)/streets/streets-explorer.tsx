@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { StreetsMap } from "@/components/map/streets-map";
+import { StreetCleaningProfilePanel } from "@/components/street-cleaning-profile-panel";
 
 type Row = {
   id: string;
@@ -164,6 +165,16 @@ export function StreetsExplorer({ rows: initialRows, zones }: { rows: Row[]; zon
             </tbody>
           </table>
         </div>
+
+        {selectedId && (
+          <div className="max-h-72 overflow-y-auto border-t border-panel-border p-3">
+            <div className="mb-2 flex items-center justify-between">
+              <span className="text-xs font-semibold text-muted">פרופיל ניקיון וציון עדיפות</span>
+              <a href="/survey" className="text-xs text-accent hover:underline">סקר שטח ←</a>
+            </div>
+            <StreetCleaningProfilePanel streetId={selectedId} />
+          </div>
+        )}
       </div>
 
       <div className="relative flex-1">

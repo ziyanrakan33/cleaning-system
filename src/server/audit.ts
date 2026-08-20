@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { logger } from "@/lib/logger";
 import type { Prisma } from "@/generated/prisma/client";
 
 /**
@@ -29,6 +30,6 @@ export async function audit(entry: {
       },
     });
   } catch (err) {
-    console.error("audit write failed", { action: entry.action, err });
+    logger.error({ action: entry.action, entityType: entry.entityType, entityId: entry.entityId, err }, "audit write failed");
   }
 }

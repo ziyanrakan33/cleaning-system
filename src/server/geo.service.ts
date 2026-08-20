@@ -1,6 +1,10 @@
 import { prisma } from "@/lib/prisma";
+import type { Prisma } from "@/generated/prisma/client";
 
 export type LonLat = [number, number];
+
+/** Anything with `$executeRaw` — the module-level client, or a `tx` inside `prisma.$transaction(async (tx) => ...)`. */
+type QueryClient = Pick<typeof prisma, "$executeRaw"> | Prisma.TransactionClient;
 
 function toWkt(coords: LonLat[]): string {
   return `LINESTRING(${coords.map(([lon, lat]) => `${lon} ${lat}`).join(", ")})`;
@@ -9,17 +13,22 @@ function toWkt(coords: LonLat[]): string {
 /**
  * Sets a street's LineString geometry (WGS84) and derives length_m + start/end
  * point columns from it. Geometry is Unsupported() in the Prisma schema, so
- * this must go through raw SQL.
+ * this must go through raw SQL. Pass `client` (a `tx` from `prisma.$transaction`)
+ * when this needs to be atomic with other writes in the same transaction —
+ * it defaults to the module-level `prisma` otherwise.
  */
-export async function setStreetGeometry(streetId: string, coords: LonLat[]) {
+export async function setStreetGeometry(streetId: string, coords: LonLat[], client: QueryClient = prisma) {
   if (coords.length < 2) throw new Error("A street geometry needs at least 2 points");
   const wkt = toWkt(coords);
   const [start] = coords;
   const end = coords[coords.length - 1];
 
-  await prisma.$executeRaw`
+  // ST_MakeValid is a no-op on an already-valid LineString — cheap insurance
+  // against a self-intersecting import that would otherwise silently corrupt
+  // every ST_Intersection/ST_Contains query touching this row later (§GEO-02).
+  await client.$executeRaw`
     UPDATE streets
-    SET geometry = ST_SetSRID(ST_GeomFromText(${wkt}), 4326),
+    SET geometry = ST_MakeValid(ST_SetSRID(ST_GeomFromText(${wkt}), 4326)),
         length_m = ST_Length(ST_SetSRID(ST_GeomFromText(${wkt}), 4326)::geography),
         start_point_lon = ${start[0]},
         start_point_lat = ${start[1]},
@@ -29,15 +38,30 @@ export async function setStreetGeometry(streetId: string, coords: LonLat[]) {
   `;
 }
 
-/** Sets a zone's Polygon geometry (WGS84) from a ring of [lon, lat] points. */
-export async function setZoneGeometry(zoneId: string, ring: LonLat[]) {
+/**
+ * Sets a zone's Polygon geometry (WGS84) from a ring of [lon, lat] points.
+ * Repairs a self-intersecting ring via ST_MakeValid rather than storing it
+ * broken — an invalid polygon corrupts every ST_Contains/ST_Intersection
+ * query against it (spatial join, "which zone is this street in", etc.) with
+ * no clear error at the point of failure. Returns whether repair was needed
+ * so the caller can warn the manager instead of silently accepting a shape
+ * that isn't quite what they drew.
+ */
+export async function setZoneGeometry(zoneId: string, ring: LonLat[]): Promise<{ repaired: boolean }> {
   if (ring.length < 4) throw new Error("A polygon ring needs at least 4 points (closed)");
   const wkt = `POLYGON((${ring.map(([lon, lat]) => `${lon} ${lat}`).join(", ")}))`;
+
+  const [{ wasValid }] = await prisma.$queryRaw<{ wasValid: boolean }[]>`
+    SELECT ST_IsValid(ST_SetSRID(ST_GeomFromText(${wkt}), 4326)) as "wasValid"
+  `;
+
   await prisma.$executeRaw`
     UPDATE zones
-    SET geometry = ST_SetSRID(ST_GeomFromText(${wkt}), 4326)
+    SET geometry = ST_MakeValid(ST_SetSRID(ST_GeomFromText(${wkt}), 4326))
     WHERE id = ${zoneId}
   `;
+
+  return { repaired: !wasValid };
 }
 
 export type StreetGeoJsonRow = {
@@ -51,6 +75,11 @@ export type StreetGeoJsonRow = {
   cleaningFrequency: unknown;
   estimatedCleanMinutes: number | null;
   notes: string | null;
+  dirtScore: number | null;
+  dataMode: string | null;
+  confidence: string | null;
+  accessIssue: boolean | null;
+  isDemo: boolean;
   geojson: string | null;
 };
 
@@ -60,9 +89,13 @@ export async function getStreetsAsGeoJson() {
     SELECT s.id, s.name, s.type::text as type, s.priority::text as priority,
            s.zone_id as "zoneId", z.name as "zoneName", s.length_m as "lengthM",
            s.cleaning_frequency as "cleaningFrequency", s.estimated_clean_minutes as "estimatedCleanMinutes",
-           s.notes, ST_AsGeoJSON(s.geometry) as geojson
+           s.notes, s.is_demo as "isDemo",
+           p.dirt_score as "dirtScore", p.data_mode::text as "dataMode", p.confidence::text as "confidence",
+           p.access_issue as "accessIssue",
+           ST_AsGeoJSON(s.geometry) as geojson
     FROM streets s
     LEFT JOIN zones z ON z.id = s.zone_id
+    LEFT JOIN street_cleaning_profiles p ON p.street_id = s.id
     WHERE s.active = true AND s.geometry IS NOT NULL
   `;
   return {
@@ -83,6 +116,11 @@ export async function getStreetsAsGeoJson() {
           cleaningFrequency: r.cleaningFrequency,
           estimatedCleanMinutes: r.estimatedCleanMinutes,
           notes: r.notes,
+          dirtScore: r.dirtScore,
+          dataMode: r.dataMode,
+          confidence: r.confidence,
+          accessIssue: r.accessIssue,
+          isDemo: r.isDemo,
         },
       })),
   };

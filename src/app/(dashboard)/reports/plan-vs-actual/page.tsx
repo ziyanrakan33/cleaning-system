@@ -44,6 +44,41 @@ export default async function PlanVsActualPage({ searchParams }: { searchParams:
 
         {!plan && <div className="text-sm text-muted">אין תוכנית עבודה לתאריך זה.</div>}
 
+        {plan && (() => {
+          const completedDiffs = plan.tasks
+            .map((t) => diffMinutes(t.plannedEnd, t.actualEnd))
+            .filter((d): d is number => d !== null);
+          const avgDeviation = completedDiffs.length > 0 ? Math.round(completedDiffs.reduce((a, b) => a + b, 0) / completedDiffs.length) : null;
+          const onTimeCount = completedDiffs.filter((d) => Math.abs(d) <= 15).length;
+          const onTimePct = completedDiffs.length > 0 ? Math.round((onTimeCount / completedDiffs.length) * 100) : null;
+          const statusCounts = plan.tasks.reduce<Record<string, number>>((acc, t) => {
+            acc[t.status] = (acc[t.status] ?? 0) + 1;
+            return acc;
+          }, {});
+          return (
+            <div className="mb-4 grid grid-cols-2 gap-3 md:grid-cols-4">
+              <div className="rounded-xl border border-panel-border bg-panel p-3">
+                <div className="text-xs text-muted">סטייה ממוצעת (סיום)</div>
+                <div className="text-xl font-bold tabular-nums">{avgDeviation !== null ? `${avgDeviation > 0 ? "+" : ""}${avgDeviation} דק'` : "—"}</div>
+              </div>
+              <div className="rounded-xl border border-panel-border bg-panel p-3">
+                <div className="text-xs text-muted">אחוז בזמן (±15 דק&apos;)</div>
+                <div className="text-xl font-bold tabular-nums">{onTimePct !== null ? `${onTimePct}%` : "—"}</div>
+              </div>
+              <div className="rounded-xl border border-panel-border bg-panel p-3">
+                <div className="text-xs text-muted">בוצע / לא בוצע / בעיה</div>
+                <div className="text-xl font-bold tabular-nums">
+                  {statusCounts.DONE ?? 0} / {statusCounts.NOT_DONE ?? 0} / {statusCounts.PROBLEM ?? 0}
+                </div>
+              </div>
+              <div className="rounded-xl border border-panel-border bg-panel p-3">
+                <div className="text-xs text-muted">סה״כ משימות</div>
+                <div className="text-xl font-bold tabular-nums">{plan.tasks.length}</div>
+              </div>
+            </div>
+          );
+        })()}
+
         {plan && (
           <table className="w-full border-collapse text-sm">
             <thead>
@@ -52,7 +87,7 @@ export default async function PlanVsActualPage({ searchParams }: { searchParams:
                 <th className="p-2 text-start">רחוב</th>
                 <th className="p-2 text-start">מתוכנן</th>
                 <th className="p-2 text-start">בפועל</th>
-                <th className="p-2 text-start">סטייה (דק')</th>
+                <th className="p-2 text-start">סטייה (דק&apos;)</th>
                 <th className="p-2 text-start">סטטוס</th>
                 <th className="p-2 text-start">הערת עובד</th>
               </tr>

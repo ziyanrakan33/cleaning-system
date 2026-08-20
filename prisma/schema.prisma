@@ -206,6 +206,71 @@ enum TaskStatus {
   PROBLEM
 }
 
+// ---------- Smart cleaning / routing enums ----------
+
+/// How much of a cleaning profile's numbers come from the field rather than
+/// from a guess. The whole point of the ladder is that the UI can always say
+/// which rung a recommendation stands on instead of presenting all of them as
+/// equally solid.
+enum ProfileDataMode {
+  /// No survey filled in yet — nothing to base a recommendation on.
+  REQUIRES_REVIEW
+  /// The supervisor's own estimate, and nothing else.
+  MANUAL_BASELINE
+  /// A complete profile scored by the published, editable weights.
+  RULE_BASED
+  /// Enough completed jobs on this segment that measured averages lead.
+  DATA_INFORMED
+}
+
+enum ServicePointStatus {
+  ACTIVE
+  BROKEN
+  TEMPORARILY_CLOSED
+  REQUIRES_REVIEW
+}
+
+enum ServiceStopKind {
+  WATER_REFILL
+  WASTE_DISPOSAL
+  BREAK
+}
+
+/// Whether a computed figure rests on measured history or on a default.
+/// Never inferred at render time — the engine stamps it.
+enum CalcBasis {
+  ESTIMATED
+  MEASURED
+}
+
+/// Basis of a routing distance: the real OSM road-network graph, or a
+/// straight-line fallback used only when the graph lookup fails.
+enum DistanceBasis {
+  ROAD_NETWORK
+  STRAIGHT_LINE
+}
+
+/// Why a field task ended NOT_DONE or PROBLEM — see TaskFieldReport.nonCompletionReason.
+enum NonCompletionReason {
+  BLOCKED
+  WATER_SHORTAGE
+  ACCESS_ISSUE
+  VEHICLE_UNSUITABLE
+  DEFECT
+  OTHER
+}
+
+enum SurveyProgress {
+  COMPLETED
+  NEEDS_RECHECK
+}
+
+enum FieldPhotoKind {
+  BEFORE
+  AFTER
+  GENERAL
+}
+
 enum ImportType {
   STREETS
   RESOURCES
@@ -231,6 +296,20 @@ model User {
   createdAt    DateTime @default(now()) @map("created_at")
   updatedAt    DateTime @updatedAt @map("updated_at")
 
+  /// Which of the two contract areas a contractor-side account (CONTRACTOR_MANAGER,
+  /// SITE_SUPERVISOR) is restricted to. Null means "not yet assigned" for those
+  /// roles — which must show nothing until set, never everything. Ignored for
+  /// every other role; do not repurpose this for general zone assignment.
+  contractAreaId String?       @map("contract_area_id")
+  contractArea   ContractArea? @relation(fields: [contractAreaId], references: [id], onDelete: SetNull)
+
+  /// Brute-force throttle on the credentials login — see src/lib/auth.ts.
+  /// Reset to 0 on any successful login. No external rate-limit store exists
+  /// yet (see docs/EXTERNAL_INTEGRATIONS.md), so this is a simple in-DB
+  /// per-account counter rather than a per-IP one.
+  failedLoginCount Int       @default(0) @map("failed_login_count")
+  lockedUntil      DateTime? @map("locked_until")
+
   // an employee may be permanently assigned to one or more resources
   assignedResources Resource[]        @relation("ResourceEmployee")
   createdWorkPlans  WorkPlan[]        @relation("WorkPlanCreatedBy")
@@ -252,6 +331,18 @@ model User {
   inspections         Inspection[]  @relation("InspectionInspector")
   attendedInspections Inspection[]  @relation("InspectionContractorRep")
 
+  settingsChanged        SystemSetting[]        @relation("SettingUpdatedBy")
+  surveys                StreetSurvey[]         @relation("SurveyBy")
+  shiftReports           ShiftReport[]          @relation("ShiftReportBy")
+  taskFieldReports       TaskFieldReport[]      @relation("FieldReportBy")
+  uploadedFieldPhotos    FieldPhoto[]           @relation("FieldPhotoUploadedBy")
+  excludedLearningEvents ProfileLearningEvent[] @relation("LearningSampleExcludedBy")
+  approvedPlanOverrides  WorkPlan[]             @relation("PlanOverrideApprovedBy")
+  cancelledPlans         WorkPlan[]             @relation("PlanCancelledBy")
+  createdZones           OperationalZone[]      @relation("ZoneCreatedBy")
+  createdStreets         Street[]               @relation("StreetCreatedBy")
+
+  @@index([contractAreaId])
   @@map("users")
 }
 
@@ -331,6 +422,7 @@ model ContractArea {
   quotas           ContractAreaResourceQuota[]
   operationalZones OperationalZone[]
   defects          Defect[]
+  users            User[]
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
@@ -402,6 +494,14 @@ model OperationalZone {
   manuallyOverridden Boolean            @default(false) @map("manually_overridden")
   notes              String?
 
+  /// Demo rows are visible and usable, but never counted in savings, learning
+  /// or KPI figures — a fabricated improvement is worse than no figure at all.
+  isDemo Boolean @default(false) @map("is_demo")
+
+  /// Who created this zone record — null for zones that predate this field.
+  createdById String? @map("created_by")
+  createdBy   User?   @relation("ZoneCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+
   // geometry(Polygon, 4326) — accessed via geo.service.ts raw SQL
   geometry Unsupported("geometry(Polygon, 4326)")?
 
@@ -411,6 +511,9 @@ model OperationalZone {
   defects           Defect[]
   complaints        Complaint[]
   inspections       Inspection[]
+
+  waterRefillPoints   WaterRefillPoint[]
+  wasteDisposalPoints WasteDisposalPoint[]
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
@@ -447,6 +550,13 @@ model Street {
   /// represented by several StreetSegments rather than a single zone link.
   crossesZones          Boolean       @default(false) @map("crosses_zones")
 
+  /// See OperationalZone.isDemo.
+  isDemo Boolean @default(false) @map("is_demo")
+
+  /// Who created this street record — null for streets that predate this field.
+  createdById String? @map("created_by")
+  createdBy   User?   @relation("StreetCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+
   allowedResourceTypes  ResourceType[]        @relation("StreetAllowedResourceTypes")
   allowedByResource     Resource[]            @relation("ResourceAllowedStreets")
   workPlanTasks         WorkPlanTask[]
@@ -454,6 +564,9 @@ model Street {
   segments              StreetSegment[]
   defects               Defect[]
   complaints            Complaint[]
+
+  cleaningProfile StreetCleaningProfile?
+  surveys         StreetSurvey[]
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
@@ -527,6 +640,9 @@ model ResourceType {
   allowedOnStreets Street[]                    @relation("StreetAllowedResourceTypes")
   quotas           ContractAreaResourceQuota[]
 
+  allowedAtWaterPoints WaterRefillPoint[]   @relation("WaterPointAllowedResourceTypes")
+  allowedAtWastePoints WasteDisposalPoint[] @relation("WastePointAllowedResourceTypes")
+
   @@map("resource_types")
 }
 
@@ -550,9 +666,24 @@ model Resource {
   notes      String?
   active     Boolean @default(true)
 
+  /// See OperationalZone.isDemo.
+  isDemo Boolean @default(false) @map("is_demo")
+
+  // ---- external tracking system (cameras / location), owned by a third party ----
+  // Reference only. This application does not read from that system, does not
+  // store any position or video, and must not be wired to it without a
+  // documented, authorised API. See docs/smart-cleaning-routing.md.
+  externalTrackingId  String? @map("external_tracking_id")
+  externalTrackingUrl String? @map("external_tracking_url")
+  trackingVendor      String? @map("tracking_vendor")
+
   availability  ResourceAvailability[]
   workPlanTasks WorkPlanTask[]
   telemetry     TelemetryEvent[]
+
+  operationalProfile ResourceOperationalProfile?
+  shiftReports       ShiftReport[]
+  serviceStops       WorkPlanServiceStop[]
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
@@ -592,8 +723,33 @@ model WorkPlan {
   parentVersion   WorkPlan?      @relation("WorkPlanVersions", fields: [parentVersionId], references: [id])
   childVersions   WorkPlan[]     @relation("WorkPlanVersions")
 
-  tasks   WorkPlanTask[]
-  changes WorkPlanChange[]
+  // ---- smart routing (§10–§13) ----
+  /// Which of the three offered alternatives the manager picked.
+  variant String?
+  /// The cost breakdown of the chosen route and of the ones rejected, so the
+  /// question "why this route" is answerable months later, not just at the
+  /// moment the screen was open.
+  planningExplanation Json? @map("planning_explanation")
+  /// Result of the pre-publish feasibility check. Publishing is blocked until
+  /// this exists.
+  feasibility Json?
+  /// §13: a plan with a failing check may still be published, but only with a
+  /// written reason and a named approver.
+  overrideReason        String? @map("override_reason")
+  overrideApprovedById  String? @map("override_approved_by")
+  overrideApprovedBy    User?   @relation("PlanOverrideApprovedBy", fields: [overrideApprovedById], references: [id], onDelete: SetNull)
+
+  /// §PLN-04: explicit cancellation, distinct from being superseded by a
+  /// newer confirmed plan (see SUPERSEDED_SIBLING_PLANS in the audit log) —
+  /// a manager retiring a plan on purpose always leaves a reason.
+  cancelReason   String?   @map("cancel_reason")
+  cancelledById  String?   @map("cancelled_by")
+  cancelledBy    User?     @relation("PlanCancelledBy", fields: [cancelledById], references: [id], onDelete: SetNull)
+  cancelledAt    DateTime? @map("cancelled_at")
+
+  tasks        WorkPlanTask[]
+  changes      WorkPlanChange[]
+  serviceStops WorkPlanServiceStop[]
 
   @@unique([date, versionNumber])
   @@index([date])
@@ -615,6 +771,11 @@ model WorkPlanTask {
   distanceM      Float?   @map("distance_m")
   travelTimeMin  Float?   @map("travel_time_min")
   cleanTimeMin   Float?   @map("clean_time_min")
+  /// Whether distanceM came from the real OSM road-network graph or a
+  /// straight-line fallback (graph lookup failed / disconnected component).
+  /// Null for tasks planned before this field existed. Never show a
+  /// STRAIGHT_LINE distance as a real road time — see docs/EXTERNAL_INTEGRATIONS.md.
+  distanceBasis  DistanceBasis? @map("distance_basis")
 
   status TaskStatus @default(PENDING)
 
@@ -623,7 +784,24 @@ model WorkPlanTask {
   actualNotes    String?   @map("actual_notes")
   employeeComment String?  @map("employee_comment")
 
+  /// Litres the engine expects this stop to consume, and the water level it
+  /// projects on arrival. Both null when no water profile exists for the
+  /// vehicle — the plan then simply carries no water projection rather than a
+  /// made-up one.
+  plannedWaterLiters    Float?    @map("planned_water_liters")
+  projectedWaterAfterL  Float?    @map("projected_water_after_l")
+  waterBasis            CalcBasis? @map("water_basis")
+  /// Same idea as the water pair above, for the waste tank: kg this task adds
+  /// and the headroom left in the tank afterward. Negative headroom is an
+  /// overflow the feasibility check must block on (see feasibility.ts).
+  plannedWasteKg        Float? @map("planned_waste_kg")
+  projectedWasteAfterKg Float? @map("projected_waste_after_kg")
+  /// Dirt score at the moment the plan was built, frozen so a later rescore
+  /// cannot silently restate why this street was picked.
+  dirtScoreAtPlanning Float? @map("dirt_score_at_planning")
+
   cleaningLogs StreetCleaningLog[]
+  fieldReports TaskFieldReport[]
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
@@ -888,6 +1066,8 @@ model Defect {
 
   photos DefectPhoto[]
   events DefectEvent[]
+  /// Field reports that raised this defect from /my-day — see TaskFieldReport.defectId.
+  fieldReportLinks TaskFieldReport[]
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
@@ -1034,4 +1214,489 @@ model AuditLog {
   @@index([entityType, entityId])
   @@index([createdAt])
   @@map("audit_logs")
+}
+
+// ---------- Smart cleaning: settings ----------
+
+/// Operator-editable configuration. Lives in the database rather than in the
+/// environment specifically because §2 and §11 require a manager to be able to
+/// change the scoring weights and the route cost weights from a screen — a
+/// value nobody can change without a redeploy is not a setting.
+model SystemSetting {
+  key         String  @id
+  value       Json
+  description String?
+
+  updatedById String? @map("updated_by")
+  updatedBy   User?   @relation("SettingUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("system_settings")
+}
+
+// ---------- Smart cleaning: street/path profile and survey ----------
+
+/// Everything about how a street or path actually behaves that the planner
+/// needs and the geometry cannot tell it: how fast it gets dirty, how long it
+/// really takes to clean, whether a vehicle fits, how much water it drinks.
+///
+/// Kept off `Street` itself so that (a) the table with 1000s of imported OSM
+/// rows takes no new NOT NULL columns, and (b) "we have no profile for this
+/// street" stays a distinguishable state from "the profile says zero".
+model StreetCleaningProfile {
+  id       String @id @default(cuid())
+  streetId String @unique @map("street_id")
+  street   Street @relation(fields: [streetId], references: [id], onDelete: Cascade)
+
+  // ---- physical ----
+  /// Free text beyond Street.type: מדרכה, גן ציבורי, שצ"פ, אזור מסחרי, אזור תעשייה.
+  infrastructureKind String? @map("infrastructure_kind")
+  widthM             Float?  @map("width_m")
+  areaM2             Float?  @map("area_m2")
+
+  // ---- dirt ----
+  /// 1–5, the supervisor's baseline judgement from the field survey.
+  dirtBaseLevel Int? @map("dirt_base_level")
+  /// 1–5, the moving average of what crews actually reported on arrival.
+  dirtDynamicLevel Float? @map("dirt_dynamic_level")
+
+  /// Same shape as Street.cleaningFrequency, but this is the *recommendation*,
+  /// not the schedule in force — the two are allowed to disagree, and that
+  /// disagreement is exactly what the manager should see.
+  recommendedFrequency Json? @map("recommended_frequency")
+
+  // ---- time ----
+  plannedCleanMin   Float?    @map("planned_clean_min")
+  avgActualCleanMin Float?    @map("avg_actual_clean_min")
+  lastCleanedAt     DateTime? @map("last_cleaned_at")
+
+  // ---- context that drives the score ----
+  pedestrianTraffic Int?     @map("pedestrian_traffic") // 1–5
+  nearSchool        Boolean? @map("near_school")
+  nearCommerce      Boolean? @map("near_commerce")
+  nearBusStop       Boolean? @map("near_bus_stop")
+  binCount          Int?     @map("bin_count")
+  treeCount         Int?     @map("tree_count")
+  leafFallLevel     Int?     @map("leaf_fall_level") // 1–5
+  /// { "9": 4, "10": 5, "11": 5 } — month (1–12) → sensitivity 1–5.
+  seasonalSensitivity Json? @map("seasonal_sensitivity")
+  /// Free text: a school fair, a market day, roadworks.
+  specialEvents String? @map("special_events")
+
+  // ---- water ----
+  requiresWater         Boolean @default(false) @map("requires_water")
+  estWaterLitersPer100m Float?  @map("est_water_liters_per_100m")
+  usesPressureWash      Boolean @default(false) @map("uses_pressure_wash")
+
+  preferredWaterPointId String?           @map("preferred_water_point_id")
+  preferredWaterPoint   WaterRefillPoint? @relation("PreferredWaterPoint", fields: [preferredWaterPointId], references: [id], onDelete: SetNull)
+  preferredWastePointId String?             @map("preferred_waste_point_id")
+  preferredWastePoint   WasteDisposalPoint? @relation("PreferredWastePoint", fields: [preferredWastePointId], references: [id], onDelete: SetNull)
+
+  // ---- access ----
+  accessIssue   Boolean @default(false) @map("access_issue")
+  narrowRoad    Boolean @default(false) @map("narrow_road")
+  /// [{"from":"07:00","to":"08:30","reason":"יציאת בית ספר"}]
+  blockedHours     Json?   @map("blocked_hours")
+  permanentHazards String? @map("permanent_hazards")
+
+  supervisorNote String? @map("supervisor_note")
+
+  // ---- score (§2) ----
+  dirtScore Float? @map("dirt_score") // 0–100
+  /// Per-component raw value, weight and contribution. The explanation shown
+  /// to the manager is rendered from this, never re-derived at display time.
+  dirtScoreFactors Json?     @map("dirt_score_factors")
+  dirtScoreAt      DateTime? @map("dirt_score_at")
+
+  dataMode    ProfileDataMode @default(REQUIRES_REVIEW) @map("data_mode")
+  confidence  ConfidenceLevel @default(LOW)
+  sampleCount Int             @default(0) @map("sample_count")
+
+  /// Set when a manager edits a learned field by hand. Learning must not
+  /// overwrite such a field on a later run.
+  manuallyOverridden Boolean @default(false) @map("manually_overridden")
+  /// Which specific fields were hand-set, e.g. ["avgActualCleanMin"].
+  manuallyOverriddenFields String[] @default([]) @map("manually_overridden_fields")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@index([dirtScore])
+  @@index([dataMode])
+  @@index([lastCleanedAt])
+  @@map("street_cleaning_profiles")
+}
+
+/// §3: one submission of the field survey. Append-only — a re-survey adds a
+/// row rather than editing the last one, so a profile's history of judgements
+/// stays readable.
+model StreetSurvey {
+  id       String @id @default(cuid())
+  streetId String @map("street_id")
+  street   Street @relation(fields: [streetId], references: [id], onDelete: Cascade)
+
+  surveyedById String @map("surveyed_by")
+  surveyedBy   User   @relation("SurveyBy", fields: [surveyedById], references: [id])
+
+  /// The raw answers exactly as submitted, so the derived profile can always
+  /// be recomputed and audited against what the surveyor actually said.
+  answers  Json
+  progress SurveyProgress @default(COMPLETED)
+  notes    String?
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([streetId, createdAt])
+  @@index([progress])
+  @@map("street_surveys")
+}
+
+// ---------- Smart cleaning: water and waste service points ----------
+
+model WaterRefillPoint {
+  id      String  @id @default(cuid())
+  name    String
+  lat     Float
+  lon     Float
+  address String?
+
+  zoneId String?          @map("zone_id")
+  zone   OperationalZone? @relation(fields: [zoneId], references: [id], onDelete: SetNull)
+
+  status ServicePointStatus @default(REQUIRES_REVIEW)
+
+  /// [{"day":"SUN","from":"06:00","to":"18:00"}]; null = no restriction known.
+  availabilityHours Json?   @map("availability_hours")
+  connectionType    String? @map("connection_type")
+
+  flowLitersPerMin Float? @map("flow_liters_per_min")
+  avgFillMinutes   Float? @map("avg_fill_minutes")
+  avgWaitMinutes   Float? @map("avg_wait_minutes")
+  /// How many vehicles can fill at once. 1 unless someone confirms otherwise.
+  parallelCapacity Int    @default(1) @map("parallel_capacity")
+
+  maxVehicleWidthM  Float? @map("max_vehicle_width_m")
+  maxVehicleHeightM Float? @map("max_vehicle_height_m")
+
+  contactName   String?   @map("contact_name")
+  contactPhone  String?   @map("contact_phone")
+  lastCheckedAt DateTime? @map("last_checked_at")
+
+  verificationStatus VerificationStatus @default(REQUIRES_REVIEW) @map("verification_status")
+  confidence         ConfidenceLevel    @default(LOW)
+  sourceType         SourceType         @default(MANUAL_ENTRY) @map("source_type")
+  notes              String?
+  active             Boolean            @default(true)
+  isDemo             Boolean            @default(false) @map("is_demo")
+
+  allowedResourceTypes ResourceType[]          @relation("WaterPointAllowedResourceTypes")
+  preferredByProfiles  StreetCleaningProfile[] @relation("PreferredWaterPoint")
+  serviceStops         WorkPlanServiceStop[]
+  fieldReports         TaskFieldReport[]
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@index([zoneId, status])
+  @@index([verificationStatus])
+  @@map("water_refill_points")
+}
+
+model WasteDisposalPoint {
+  id      String  @id @default(cuid())
+  name    String
+  lat     Float
+  lon     Float
+  address String?
+
+  zoneId String?          @map("zone_id")
+  zone   OperationalZone? @relation(fields: [zoneId], references: [id], onDelete: SetNull)
+
+  /// Free-text tags kept as written (e.g. "גזם", "אשפה יבשה") rather than an
+  /// enum — the accepted list differs per site and is not fixed by contract.
+  allowedWasteTypes String[] @default([]) @map("allowed_waste_types")
+
+  availabilityHours Json?  @map("availability_hours")
+  avgDumpMinutes    Float? @map("avg_dump_minutes")
+  avgWaitMinutes    Float? @map("avg_wait_minutes")
+
+  maxVehicleWidthM  Float?  @map("max_vehicle_width_m")
+  maxVehicleHeightM Float?  @map("max_vehicle_height_m")
+  accessNotes       String? @map("access_notes")
+
+  status             ServicePointStatus @default(REQUIRES_REVIEW)
+  verificationStatus VerificationStatus @default(REQUIRES_REVIEW) @map("verification_status")
+  confidence         ConfidenceLevel    @default(LOW)
+  notes              String?
+  active             Boolean            @default(true)
+  isDemo             Boolean            @default(false) @map("is_demo")
+
+  allowedResourceTypes ResourceType[]          @relation("WastePointAllowedResourceTypes")
+  preferredByProfiles  StreetCleaningProfile[] @relation("PreferredWastePoint")
+  serviceStops         WorkPlanServiceStop[]
+  fieldReports         TaskFieldReport[]
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@index([zoneId, status])
+  @@map("waste_disposal_points")
+}
+
+// ---------- Smart cleaning: vehicle operational profile ----------
+
+/// §6. Every figure is nullable on purpose: a missing capacity must read as
+/// REQUIRES_REVIEW in the UI, never as a plausible default silently used by
+/// the water projection. `Resource.attributes` keeps working as the older,
+/// looser store and is used as a fallback.
+model ResourceOperationalProfile {
+  id         String   @id @default(cuid())
+  resourceId String   @unique @map("resource_id")
+  resource   Resource @relation(fields: [resourceId], references: [id], onDelete: Cascade)
+
+  // ---- capacity ----
+  waterCapacityL   Float? @map("water_capacity_l")
+  wasteCapacityKg  Float? @map("waste_capacity_kg")
+  minWaterReserveL Float? @map("min_water_reserve_l")
+
+  // ---- consumption ----
+  waterLPerWorkHour Float? @map("water_l_per_work_hour")
+  waterLPerCleanKm  Float? @map("water_l_per_clean_km")
+  wasteKgPerCleanKm Float? @map("waste_kg_per_clean_km")
+
+  // ---- dimensions / access ----
+  widthM             Float?  @map("width_m")
+  heightM            Float?  @map("height_m")
+  weightKg           Float?  @map("weight_kg")
+  canEnterPath       Boolean @default(false) @map("can_enter_path")
+  canMountSidewalk   Boolean @default(false) @map("can_mount_sidewalk")
+  /// Free text list of road types it may work on, beyond the type catalog.
+  allowedRoadTypes String[] @default([]) @map("allowed_road_types")
+
+  // ---- speed and service times ----
+  avgWorkSpeedMPerMin Float? @map("avg_work_speed_m_per_min")
+  avgTravelSpeedKmh   Float? @map("avg_travel_speed_kmh")
+  avgFillMinutes      Float? @map("avg_fill_minutes")
+  avgDumpMinutes      Float? @map("avg_dump_minutes")
+
+  // ---- depot ----
+  startPointLat Float? @map("start_point_lat")
+  startPointLon Float? @map("start_point_lon")
+  endPointLat   Float? @map("end_point_lat")
+  endPointLon   Float? @map("end_point_lon")
+
+  verificationStatus VerificationStatus @default(REQUIRES_REVIEW) @map("verification_status")
+  confidence         ConfidenceLevel    @default(LOW)
+  sampleCount        Int                @default(0) @map("sample_count")
+  notes              String?
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("resource_operational_profiles")
+}
+
+// ---------- Smart cleaning: field reporting ----------
+
+/// §7: what the driver states at the start of the shift. The water level here
+/// is the only trustworthy starting point for the day's projection — there is
+/// no tank sensor and none is to be simulated.
+model ShiftReport {
+  id         String   @id @default(cuid())
+  resourceId String   @map("resource_id")
+  resource   Resource @relation(fields: [resourceId], references: [id], onDelete: Cascade)
+
+  userId String @map("user_id")
+  user   User   @relation("ShiftReportBy", fields: [userId], references: [id])
+
+  date      DateTime @db.Date
+  startedAt DateTime @map("started_at")
+
+  operatorName  String? @map("operator_name")
+  licensePlate  String? @map("license_plate")
+
+  waterStartPercent Int?   @map("water_start_percent")
+  waterStartLiters  Float? @map("water_start_liters")
+  wasteTankState    String? @map("waste_tank_state")
+  vehicleCondition  String? @map("vehicle_condition")
+
+  /// Only recorded when the browser granted permission and the user submitted
+  /// it with the form. Not tracking — a single point at shift start.
+  lat Float?
+  lon Float?
+
+  notes  String?
+  isDemo Boolean @default(false) @map("is_demo")
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@unique([resourceId, date])
+  @@index([date])
+  @@map("shift_reports")
+}
+
+/// §8: what actually happened on one street. This is the single input the
+/// learning layer trains on, and the only evidence for plan-vs-actual — there
+/// is no GPS trace to fall back on.
+model TaskFieldReport {
+  id             String       @id @default(cuid())
+  workPlanTaskId String       @map("work_plan_task_id")
+  workPlanTask   WorkPlanTask @relation(fields: [workPlanTaskId], references: [id], onDelete: Cascade)
+
+  reportedById String @map("reported_by")
+  reportedBy   User   @relation("FieldReportBy", fields: [reportedById], references: [id])
+
+  startedAt DateTime? @map("started_at")
+  endedAt   DateTime? @map("ended_at")
+
+  dirtBefore  Int? @map("dirt_before")  // 1–5
+  cleanAfter  Int? @map("clean_after")  // 1–5
+
+  waterBeforeL       Float? @map("water_before_l")
+  waterAfterL        Float? @map("water_after_l")
+  waterBeforePercent Int?   @map("water_before_percent")
+  waterAfterPercent  Int?   @map("water_after_percent")
+
+  refillNeeded        Boolean           @default(false) @map("refill_needed")
+  waterRefillPointId  String?           @map("water_refill_point_id")
+  waterRefillPoint    WaterRefillPoint? @relation(fields: [waterRefillPointId], references: [id], onDelete: SetNull)
+  refillMinutes       Float?            @map("refill_minutes")
+  refillTravelMinutes Float?            @map("refill_travel_minutes")
+
+  wasteDumpNeeded      Boolean             @default(false) @map("waste_dump_needed")
+  wasteDisposalPointId String?             @map("waste_disposal_point_id")
+  wasteDisposalPoint   WasteDisposalPoint? @relation(fields: [wasteDisposalPointId], references: [id], onDelete: SetNull)
+  dumpMinutes          Float?              @map("dump_minutes")
+
+  accessProblem   Boolean @default(false) @map("access_problem")
+  parkedVehicles  Boolean @default(false) @map("parked_vehicles")
+  blocked         Boolean @default(false)
+  vehicleSuitable Boolean @default(true) @map("vehicle_suitable")
+  needsRevisit    Boolean @default(false) @map("needs_revisit")
+
+  /// A structured reason for NOT_DONE/PROBLEM statuses — the booleans above
+  /// capture *what* happened, this captures *why the task wasn't completed*,
+  /// in a form reports can group by instead of parsing free text.
+  nonCompletionReason NonCompletionReason? @map("non_completion_reason")
+  /// Optional shortcut from a field report straight into the Defects module,
+  /// so a worker who spots a defect while on a task does not have to leave
+  /// /my-day and re-describe it from scratch.
+  defectId String? @map("defect_id")
+  defect   Defect? @relation(fields: [defectId], references: [id], onDelete: SetNull)
+
+  notes String?
+
+  /// Client-generated per-submit-attempt key so a retried save on a flaky
+  /// field connection creates/updates one report instead of a duplicate and
+  /// double-applying the EWMA learning update (see updateFromExecution.ts).
+  idempotencyKey String? @unique @map("idempotency_key")
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([workPlanTaskId])
+  @@index([createdAt])
+  @@map("task_field_reports")
+}
+
+/// Field photos, attached polymorphically the same way SourceEvidence is, so
+/// shift reports and survey answers can both carry pictures without a foreign
+/// key per table. Bytes live in the database and are served through an
+/// authenticated route, exactly like DefectPhoto — never written to /public.
+model FieldPhoto {
+  id String @id @default(cuid())
+
+  entityType String @map("entity_type") // "ShiftReport" | "TaskFieldReport" | "StreetSurvey" | "WaterRefillPoint" ...
+  entityId   String @map("entity_id")
+
+  kind      FieldPhotoKind @default(GENERAL)
+  mimeType  String         @map("mime_type")
+  sizeBytes Int            @map("size_bytes")
+  data      Bytes
+  caption   String?
+
+  uploadedById String   @map("uploaded_by")
+  uploadedBy   User     @relation("FieldPhotoUploadedBy", fields: [uploadedById], references: [id])
+  uploadedAt   DateTime @default(now()) @map("uploaded_at")
+
+  @@index([entityType, entityId])
+  @@map("field_photos")
+}
+
+// ---------- Smart cleaning: service stops inside a route ----------
+
+/// A refill or disposal stop the engine inserted into a resource's day.
+///
+/// Deliberately a separate table rather than a nullable `street_id` on
+/// work_plan_tasks: every existing report, dashboard query and screen keeps
+/// seeing exactly the cleaning tasks it saw before, and only the new views
+/// merge the two lists by `sequenceOrder`.
+model WorkPlanServiceStop {
+  id         String   @id @default(cuid())
+  workPlanId String   @map("work_plan_id")
+  workPlan   WorkPlan @relation(fields: [workPlanId], references: [id], onDelete: Cascade)
+  resourceId String   @map("resource_id")
+  resource   Resource @relation(fields: [resourceId], references: [id])
+
+  /// Shares the numbering space with WorkPlanTask.sequenceOrder for the same
+  /// resource, which is what lets the two be merged into one route.
+  sequenceOrder Int             @map("sequence_order")
+  kind          ServiceStopKind
+
+  waterRefillPointId   String?             @map("water_refill_point_id")
+  waterRefillPoint     WaterRefillPoint?   @relation(fields: [waterRefillPointId], references: [id], onDelete: SetNull)
+  wasteDisposalPointId String?             @map("waste_disposal_point_id")
+  wasteDisposalPoint   WasteDisposalPoint? @relation(fields: [wasteDisposalPointId], references: [id], onDelete: SetNull)
+
+  plannedArrival   DateTime @map("planned_arrival")
+  plannedDeparture DateTime @map("planned_departure")
+  travelDistanceM  Float?   @map("travel_distance_m")
+  travelTimeMin    Float?   @map("travel_time_min")
+  serviceTimeMin   Float?   @map("service_time_min")
+  litersLoaded     Float?   @map("liters_loaded")
+
+  /// Why the engine put this stop here, in the manager's language.
+  reason String?
+  basis  CalcBasis @default(ESTIMATED)
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([workPlanId, resourceId])
+  @@map("work_plan_service_stops")
+}
+
+// ---------- Smart cleaning: learning from execution ----------
+
+/// §17: one recorded change to a learned figure. Keeping the old value next to
+/// the new one is what makes "why did the estimate move" answerable, and what
+/// lets a manager void a bad sample and have the average recomputed without it.
+model ProfileLearningEvent {
+  id String @id @default(cuid())
+
+  entityType String @map("entity_type") // "StreetCleaningProfile" | "ResourceOperationalProfile" | "WaterRefillPoint"
+  entityId   String @map("entity_id")
+  fieldName  String @map("field_name")
+
+  oldValue    Float?  @map("old_value")
+  newValue    Float?  @map("new_value")
+  sampleValue Float?  @map("sample_value")
+  sampleCount Int     @default(0) @map("sample_count")
+  reason      String?
+
+  sourceReportId String? @map("source_report_id")
+
+  /// True when the sample was outside the plausible band, or a manager voided
+  /// it. Excluded samples are kept, not deleted — they are evidence too.
+  excluded     Boolean   @default(false)
+  excludedById String?   @map("excluded_by")
+  excludedBy   User?     @relation("LearningSampleExcludedBy", fields: [excludedById], references: [id], onDelete: SetNull)
+  excludedAt   DateTime? @map("excluded_at")
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([entityType, entityId, createdAt])
+  @@index([excluded])
+  @@map("profile_learning_events")
 }

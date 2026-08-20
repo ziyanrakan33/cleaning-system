@@ -1,11 +1,12 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { auth } from "@/lib/auth";
+import { can } from "@/lib/permissions";
 import { parseDateOnly, addDaysToDateOnly, formatDateOnly } from "@/server/dateUtils";
 
 export async function GET(req: Request) {
   const session = await auth();
-  if (!session?.user || (session.user.role !== "ADMIN" && session.user.role !== "MANAGER")) {
+  if (!session?.user || !can(session.user.role, "plans.edit")) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
 

@@ -63,6 +63,7 @@ export async function getDefectDetail(defectId: string, role: string | null | un
       : null,
     zone: d.zone,
     streetName: d.street?.name ?? null,
+    contractAreaId: d.contractAreaId,
     contractAreaName: d.contractArea?.name ?? null,
     contractorName: d.contractArea?.contractor?.name ?? null,
     lat: d.lat,

@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { auth } from "@/lib/auth";
 import { can } from "@/lib/permissions";
+import { resolveContractAreaScope } from "@/server/scope";
 import { ReportPrintLayout } from "../../report-print-layout";
 import { resourceUtilizationReport } from "@/server/reports/queries-quality";
 import { monthBounds, parseYearMonth } from "@/server/reports/shared";
@@ -13,6 +14,7 @@ export default async function ResourceUtilizationPrintPage({
 }) {
   const session = await auth();
   if (!can(session?.user?.role, "reports.view")) redirect("/");
+  if (resolveContractAreaScope({ role: session?.user?.role ?? "", contractAreaId: session?.user?.contractAreaId }).restricted) redirect("/reports");
 
   const params = await searchParams;
   const today = todayDateOnly();

@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { auth } from "@/lib/auth";
+import { can } from "@/lib/permissions";
+import { audit } from "@/server/audit";
 
 const createSchema = z.object({
   name: z.string().min(1),
@@ -24,7 +26,7 @@ export async function GET() {
 
 export async function POST(req: Request) {
   const session = await auth();
-  if (!session?.user || (session.user.role !== "ADMIN" && session.user.role !== "MANAGER")) {
+  if (!session?.user || !can(session.user.role, "zones.editBoundary")) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
 
@@ -33,6 +35,16 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
   }
 
-  const zone = await prisma.operationalZone.create({ data: parsed.data });
+  const zone = await prisma.operationalZone.create({ data: { ...parsed.data, createdById: session.user.id } });
+
+  await audit({
+    entityType: "OperationalZone",
+    entityId: zone.id,
+    action: "ZONE_CREATED",
+    userId: session.user.id,
+    after: { name: zone.name, code: zone.code },
+    description: `נוצר אזור תפעולי "${zone.name}"`,
+  });
+
   return NextResponse.json(zone, { status: 201 });
 }

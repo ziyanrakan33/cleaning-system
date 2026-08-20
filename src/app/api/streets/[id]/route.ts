@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { auth } from "@/lib/auth";
+import { can } from "@/lib/permissions";
+import { audit } from "@/server/audit";
 
 const patchSchema = z.object({
   zoneId: z.string().nullable().optional(),
@@ -20,7 +22,7 @@ const patchSchema = z.object({
 
 export async function PATCH(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const session = await auth();
-  if (!session?.user || (session.user.role !== "ADMIN" && session.user.role !== "MANAGER")) {
+  if (!session?.user || !can(session.user.role, "streets.edit")) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
 
@@ -34,6 +36,15 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
   const street = await prisma.street.update({
     where: { id },
     data: parsed.data,
+  });
+
+  await audit({
+    entityType: "Street",
+    entityId: street.id,
+    action: "STREET_UPDATED",
+    userId: session.user.id,
+    after: parsed.data,
+    description: `רחוב "${street.name}" עודכן`,
   });
 
   return NextResponse.json(street);

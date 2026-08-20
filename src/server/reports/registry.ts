@@ -13,6 +13,7 @@ import {
 } from "./queries-execution";
 import { cityCoverageReport, defectsReport, qualityControlReport, resourceUtilizationReport } from "./queries-quality";
 import { pendingVerificationReport, sourceConflictsReport } from "./queries-sources";
+import { forecastAccuracyReport, serviceStopsReport, waterConsumptionReport } from "./queries-water";
 import { monthBounds, parseYearMonth } from "./shared";
 
 export type ReportContext = { showMoney: boolean };
@@ -222,6 +223,32 @@ export const REPORTS: ReportEntry[] = [
     sheetName: "ממתין לאימות",
     parseParams: () => ({}),
     run: () => pendingVerificationReport(),
+  },
+  {
+    id: "water-consumption",
+    title: "דוח צריכת מים (מתוכנן)",
+    sheetName: "צריכת מים",
+    parseParams: (sp) => {
+      const range = reqRange(sp);
+      if (!range) return null;
+      const groupBy = (sp.get("groupBy") as "resource" | "zone" | "infrastructure") || "resource";
+      return { ...range, groupBy };
+    },
+    run: (p) => waterConsumptionReport(p.from as Date, p.to as Date, p.groupBy as "resource" | "zone" | "infrastructure"),
+  },
+  {
+    id: "service-stops",
+    title: "דוח עצירות מילוי ופריקה",
+    sheetName: "עצירות שירות",
+    parseParams: (sp) => reqRange(sp),
+    run: (p) => serviceStopsReport(p.from as Date, p.to as Date),
+  },
+  {
+    id: "forecast-accuracy",
+    title: "דוח דיוק תחזית זמן ניקיון",
+    sheetName: "דיוק תחזית",
+    parseParams: (sp) => reqRange(sp),
+    run: (p) => forecastAccuracyReport(p.from as Date, p.to as Date),
   },
 ];
 

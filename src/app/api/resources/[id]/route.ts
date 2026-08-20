@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { auth } from "@/lib/auth";
 import { can } from "@/lib/permissions";
 import { QuotaExceededError, setResourceZones } from "@/server/resources/service";
+import { audit } from "@/server/audit";
 
 const patchSchema = z.object({
   status: z.enum(["ACTIVE", "BROKEN", "MAINTENANCE", "INACTIVE"]).optional(),
@@ -36,6 +37,36 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
   const permission = touchesZones ? "resources.transfer" : "resources.edit";
   if (!can(session.user.role, permission)) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  }
+
+  // An employee statically linked to two active resources would see two
+  // separate /my-day task lists with no warning — the same double-booking
+  // risk PLN-01 closes at the plan level, just at the assignment source.
+  if (rest.assignedEmployeeId) {
+    const conflict = await prisma.resource.findFirst({
+      where: { assignedEmployeeId: rest.assignedEmployeeId, active: true, id: { not: id } },
+      select: { id: true, identifier: true, name: true, resourceType: { select: { name: true } } },
+    });
+    if (conflict && !overrideReason) {
+      return NextResponse.json(
+        {
+          error: "employee_already_assigned",
+          message: `העובד כבר משויך לכלי פעיל אחר: ${conflict.resourceType.name} ${conflict.identifier}${conflict.name ? ` (${conflict.name})` : ""}. יש לאשר עם נימוק כדי להמשיך.`,
+          details: { conflictingResourceId: conflict.id },
+        },
+        { status: 409 }
+      );
+    }
+    if (conflict && overrideReason) {
+      await audit({
+        entityType: "Resource",
+        entityId: id,
+        action: "EMPLOYEE_DOUBLE_ASSIGNMENT_OVERRIDE",
+        userId: session.user.id,
+        after: { employeeId: rest.assignedEmployeeId, conflictingResourceId: conflict.id, reason: overrideReason },
+        description: `שיוך עובד לכלי חרף שיוך פעיל קיים לכלי אחר: ${overrideReason}`,
+      });
+    }
   }
 
   if (Object.keys(rest).length > 0) {

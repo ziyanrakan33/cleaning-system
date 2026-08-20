@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { auth } from "@/lib/auth";
 import { can } from "@/lib/permissions";
 import { createDefect, DefectError, effectiveDeduction } from "@/server/defects/service";
+import { scopedContractAreaId } from "@/server/scope";
 import type { Prisma } from "@/generated/prisma/client";
 
 const createSchema = z.object({
@@ -33,8 +34,13 @@ export async function GET(req: Request) {
   const url = new URL(req.url);
   const status = url.searchParams.get("status");
   const zoneId = url.searchParams.get("zoneId");
-  const contractAreaId = url.searchParams.get("contractAreaId");
+  const requestedContractAreaId = url.searchParams.get("contractAreaId");
   const overdueOnly = url.searchParams.get("overdue") === "1";
+
+  // A contractor-side account may only ever see its own contract area's
+  // defects, regardless of what zoneId/contractAreaId it passes in.
+  const scoped = scopedContractAreaId(session.user, requestedContractAreaId);
+  if (scoped === "NONE") return NextResponse.json([]);
 
   const where: Prisma.DefectWhereInput = {};
   if (status && status !== "ALL") {
@@ -43,7 +49,7 @@ export async function GET(req: Request) {
       : (status as Prisma.DefectWhereInput["status"]);
   }
   if (zoneId) where.zoneId = zoneId;
-  if (contractAreaId) where.contractAreaId = contractAreaId;
+  if (scoped) where.contractAreaId = scoped;
   if (overdueOnly) {
     where.dueAt = { lt: new Date() };
     where.status = { notIn: ["FIXED", "CLOSED", "REJECTED"] };

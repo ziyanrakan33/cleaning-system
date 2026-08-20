@@ -1,13 +1,14 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { auth } from "@/lib/auth";
+import { can } from "@/lib/permissions";
 import { moveTask } from "@/server/scheduling/manualEdit";
 
 const bodySchema = z.object({ targetResourceId: z.string(), targetIndex: z.number().int().min(0) });
 
 export async function POST(req: Request, { params }: { params: Promise<{ taskId: string }> }) {
   const session = await auth();
-  if (!session?.user || (session.user.role !== "ADMIN" && session.user.role !== "MANAGER")) {
+  if (!session?.user || !can(session.user.role, "plans.edit")) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
   const { taskId } = await params;

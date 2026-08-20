@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { can } from "@/lib/permissions";
+import { prisma } from "@/lib/prisma";
 import {
   changeStatus,
   decideAppeal,
@@ -10,6 +11,7 @@ import {
   lodgeAppeal,
 } from "@/server/defects/service";
 import { getDefectDetail } from "@/server/defects/getDefectDetail";
+import { canAccessContractArea } from "@/server/scope";
 
 export async function GET(_req: Request, { params }: { params: Promise<{ id: string }> }) {
   const session = await auth();
@@ -21,6 +23,11 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
   const { id } = await params;
   const detail = await getDefectDetail(id, session.user.role);
   if (!detail) return NextResponse.json({ error: "ליקוי לא נמצא" }, { status: 404 });
+  // Not found, not forbidden — a scoped contractor asking about another
+  // contractor's defect id should not learn it exists.
+  if (!canAccessContractArea(session.user, detail.contractAreaId)) {
+    return NextResponse.json({ error: "ליקוי לא נמצא" }, { status: 404 });
+  }
 
   return NextResponse.json(detail);
 }
@@ -57,6 +64,12 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
   }
   const body = parsed.data;
+
+  const target = await prisma.defect.findUnique({ where: { id }, select: { contractAreaId: true } });
+  if (!target) return NextResponse.json({ error: "ליקוי לא נמצא" }, { status: 404 });
+  if (!canAccessContractArea(session.user, target.contractAreaId)) {
+    return NextResponse.json({ error: "ליקוי לא נמצא" }, { status: 404 });
+  }
 
   try {
     switch (body.action) {

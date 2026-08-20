@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { auth } from "@/lib/auth";
 import { can } from "@/lib/permissions";
+import { resolveContractAreaScope } from "@/server/scope";
 import { ReportPrintLayout } from "../../report-print-layout";
 import { byWorkerReport } from "@/server/reports/queries-execution";
 import { parseDateOnly, formatDateOnly, addDaysToDateOnly, todayDateOnly } from "@/server/dateUtils";
@@ -13,6 +14,7 @@ export default async function ByWorkerPrintPage({
 }) {
   const session = await auth();
   if (!can(session?.user?.role, "reports.view")) redirect("/");
+  if (resolveContractAreaScope({ role: session?.user?.role ?? "", contractAreaId: session?.user?.contractAreaId }).restricted) redirect("/reports");
 
   const params = await searchParams;
   if (!params.userId) {

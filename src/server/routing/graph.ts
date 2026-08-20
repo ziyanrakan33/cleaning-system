@@ -11,8 +11,17 @@ import path from "node:path";
 
 export type LonLat = [number, number];
 
+export type DistanceBasis = "ROAD_NETWORK" | "STRAIGHT_LINE";
+
 export interface RoutingProvider {
   distanceMeters(a: LonLat, b: LonLat): number;
+  /**
+   * Same distance, but honest about whether it came from the real road graph
+   * or a straight-line fallback (nearest-node lookup failed, or the graph
+   * component is disconnected). Callers that persist or display a distance
+   * to a user should use this, not the basis-less `distanceMeters`.
+   */
+  distanceMetersWithBasis(a: LonLat, b: LonLat): { meters: number; basis: DistanceBasis };
 }
 
 type GraphFile = { nodes: LonLat[]; adjacency: Array<Array<[number, number]>> };
@@ -148,22 +157,28 @@ function dijkstra(from: number, to: number, graph: GraphFile): number {
   return Infinity;
 }
 
-const distanceCache = new Map<string, number>();
+const distanceCache = new Map<string, { meters: number; basis: DistanceBasis }>();
 
 export const roadNetworkRouting: RoutingProvider = {
   distanceMeters(a: LonLat, b: LonLat): number {
+    return roadNetworkRouting.distanceMetersWithBasis(a, b).meters;
+  },
+
+  distanceMetersWithBasis(a: LonLat, b: LonLat): { meters: number; basis: DistanceBasis } {
     const graph = loadGraph();
     const index = getIndex();
     const fromNode = index.nearest(a);
     const toNode = index.nearest(b);
-    if (fromNode === -1 || toNode === -1) return haversineM(a, b);
+    if (fromNode === -1 || toNode === -1) return { meters: haversineM(a, b), basis: "STRAIGHT_LINE" };
 
     const cacheKey = fromNode < toNode ? `${fromNode}-${toNode}` : `${toNode}-${fromNode}`;
     const cached = distanceCache.get(cacheKey);
     if (cached !== undefined) return cached;
 
     const d = dijkstra(fromNode, toNode, graph);
-    const result = Number.isFinite(d) ? d : haversineM(a, b);
+    const result: { meters: number; basis: DistanceBasis } = Number.isFinite(d)
+      ? { meters: d, basis: "ROAD_NETWORK" }
+      : { meters: haversineM(a, b), basis: "STRAIGHT_LINE" };
     distanceCache.set(cacheKey, result);
     return result;
   },

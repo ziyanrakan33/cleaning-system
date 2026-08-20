@@ -3,6 +3,7 @@ import { can } from "@/lib/permissions";
 import { getReport } from "@/server/reports/registry";
 import { buildCsv, buildExcelBuffer, csvResponse, excelResponse } from "@/server/reports/export";
 import { formatDateOnly, todayDateOnly } from "@/server/dateUtils";
+import { resolveContractAreaScope } from "@/server/scope";
 
 /**
  * One dispatcher for every report's Excel/CSV download, e.g.
@@ -17,6 +18,15 @@ export async function GET(req: Request) {
   const session = await auth();
   if (!session?.user || !can(session.user.role, "reports.view")) {
     return new Response("unauthorized", { status: 401 });
+  }
+  // §SEC-02: none of the report queries in the registry are scoped to a
+  // single contract area yet (most are intentionally city-wide, e.g. the
+  // contractor-comparison report). Until each report is reviewed and given
+  // real per-contract-area scoping, a contractor-side account must be denied
+  // here rather than silently see every contractor's data — fail closed, not
+  // open. Tracked as a follow-up in docs/PRE_DATA_COMPLETION_PLAN.md.
+  if (resolveContractAreaScope(session.user).restricted) {
+    return new Response("דוחות מרוכזים אינם זמינים עדיין לחשבונות קבלן — בבדיקה", { status: 403 });
   }
 
   const { searchParams } = new URL(req.url);
