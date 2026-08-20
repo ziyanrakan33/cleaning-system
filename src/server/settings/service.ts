@@ -147,11 +147,15 @@ export const DEFAULT_ROUTE_COST_WEIGHTS: RouteCostWeights = {
  * its settings row.
  */
 export async function getSetting<T extends object>(key: string, fallback: T): Promise<T> {
-  const row = await prisma.systemSetting.findUnique({ where: { key } });
-  if (!row || typeof row.value !== "object" || row.value === null || Array.isArray(row.value)) {
+  try {
+    const row = await prisma.systemSetting.findUnique({ where: { key } });
+    if (!row || typeof row.value !== "object" || row.value === null || Array.isArray(row.value)) {
+      return fallback;
+    }
+    return { ...fallback, ...(row.value as Partial<T>) };
+  } catch {
     return fallback;
   }
-  return { ...fallback, ...(row.value as Partial<T>) };
 }
 
 export async function setSetting(
