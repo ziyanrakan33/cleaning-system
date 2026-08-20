@@ -13,10 +13,13 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: npm
 
       - run: npm ci
+
+      - name: Generate Prisma client
+        run: npx prisma generate
 
       - name: Lint
         run: npm run lint
@@ -26,9 +29,6 @@ jobs:
 
       - name: Unit tests
         run: npm test
-
-      - name: Generate Prisma client
-        run: npx prisma generate
 
       - name: Build
         # DATABASE_URL is required for the Prisma client to initialize even
